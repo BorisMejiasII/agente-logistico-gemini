@@ -1,5 +1,5 @@
-/**
- * Estados posibles del ciclo de vida de una orden de compra pendiente.
+/*
+ Estados posibles del ciclo de vida de una orden de compra pendiente.
  */
 export type PendingOrderState =
   | 'NONE'
@@ -8,8 +8,8 @@ export type PendingOrderState =
   | 'CANCELLED'
   | 'COMPLETED';
 
-/**
- * Operación de orden pendiente gestionada por la máquina de estados determinista.
+/*
+ Operación de orden pendiente gestionada por la máquina de estados determinista.
  */
 export interface PendingOrder {
   normalizedProduct: string;
@@ -22,8 +22,8 @@ export interface PendingOrder {
   updatedAt: Date;
 }
 
-/**
- * Registro de inventario detallado con desglose estricto de estados físicos y trazabilidad.
+/*
+ Registro de inventario detallado con desglose estricto de estados físicos y trazabilidad.
  */
 export interface InventoryRecord {
   productKey: string;
@@ -42,8 +42,8 @@ export interface InventoryRecord {
   uncertaintyNotes?: string;
 }
 
-/**
- * Resultado enriquecido de una consulta de stock.
+/*
+ Resultado enriquecido de una consulta de stock.
  */
 export interface StockQueryResult {
   availableStock: number;
@@ -65,8 +65,8 @@ export interface StockQueryResult {
   };
 }
 
-/**
- * Resultado estructurado devuelto por la ejecución de herramientas.
+/*
+ Resultado estructurado devuelto por la ejecución de herramientas.
  */
 export interface ToolExecutionResponse<T = unknown> {
   success: boolean;

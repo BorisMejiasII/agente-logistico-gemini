@@ -229,7 +229,6 @@ export class OrderStateMachine {
       return;
     }
 
-    // Reglas de transición deterministas
     if (analysis.isCancellation) {
       this.pendingOrder.state = 'CANCELLED';
       this.pendingOrder.updatedAt = new Date();
@@ -238,7 +237,7 @@ export class OrderStateMachine {
         this.pendingOrder.state = 'CONFIRMED';
         this.pendingOrder.updatedAt = new Date();
       } else {
-        // Ante cualquier ambigüedad, condiciones o preguntas, permanece en AWAITING_CONFIRMATION
+        // Ante cualquier ambigüedad, condiciones o preguntas, permanece en AWAIING_CONFIRMATION
         this.pendingOrder.state = 'AWAITING_CONFIRMATION';
       }
     }
@@ -289,8 +288,8 @@ export class OrderStateMachine {
     return null;
   }
 
-  /**
-   * Valida estrictamente si `emitir_orden_compra` puede ejecutarse según las 6 reglas obligatorias.
+  /*
+   Valida estrictamente si `emitir_orden_compra` puede ejecutarse según las 6 reglas obligatorias.
    */
   public validateAndExecuteOrder(
     product: string,

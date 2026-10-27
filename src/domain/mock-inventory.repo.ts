@@ -1,10 +1,10 @@
 import { IInventoryRepository, ProductNotFoundError, normalizeProductString } from './inventory.repository.js';
 import { StockQueryResult } from './inventory.types.js';
 
-/**
- * Repositorio de inventario Mock que simula el escenario del PDF:
- * Devuelve un stock aleatorio entre 1 y 5 memorizado por producto en la sesión
- * para asegurar la consistencia durante el cálculo del faltante y la orden de compra.
+/*
+ Reositorio de inventario Mock que simula el escenario del PDF:
+ Devuelve un stock aleatorio entre 1 y 5 memorizado por producto en la sesión
+ para asegurar la consistencia durante el cálculo del faltante y la orden de compra.
  */
 export class MockInventoryRepository implements IInventoryRepository {
   private readonly sessionStockCache = new Map<string, number>();
@@ -69,10 +69,8 @@ export class MockInventoryRepository implements IInventoryRepository {
       throw new ProductNotFoundError(producto);
     }
 
-    // Memorizar por clave canónica para coherencia absoluta en la sesión
     let stock = this.sessionStockCache.get(canonicalKey);
     if (stock === undefined) {
-      // Stock aleatorio entre 1 y 5 para reproducir fielmente el escenario del PDF
       stock = Math.floor(Math.random() * 5) + 1;
       this.sessionStockCache.set(canonicalKey, stock);
     }
@@ -97,16 +95,16 @@ export class MockInventoryRepository implements IInventoryRepository {
     };
   }
 
-  /**
-   * Permite fijar un stock específico para pruebas deterministas
+  /*
+   Permite fijar un stock específico para pruebas deterministas
    */
   public setMockStock(producto: string, stock: number): void {
     const canonicalKey = this.getCanonicalProductKey(producto) ?? this.normalizeProductName(producto);
     this.sessionStockCache.set(canonicalKey, stock);
   }
 
-  /**
-   * Limpia la memoria de sesión
+  /*
+   Limpia la memoria de sesión
    */
   public reset(): void {
     this.sessionStockCache.clear();

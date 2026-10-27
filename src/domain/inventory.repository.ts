@@ -29,8 +29,8 @@ export function normalizeProductString(str: string): string {
   return str
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Quita tildes
-    .replace(/[^a-z0-9\s-]/g, '')     // Remueve caracteres no alfanuméricos
+    .replace(/[\u0300-\u036f]/g, '')  
+    .replace(/[^a-z0-9\s-]/g, '')     
     .trim()
-    .replace(/\s+/g, ' ');           // Colapsa espacios
+    .replace(/\s+/g, ' ');           
 }

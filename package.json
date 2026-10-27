@@ -22,7 +22,7 @@
     "typescript"
   ],
   "author": "",
-  "license": "MIT",
+  "private": true,
   "dependencies": {
     "@google/genai": "^2.31.0",
     "dotenv": "^16.4.7"

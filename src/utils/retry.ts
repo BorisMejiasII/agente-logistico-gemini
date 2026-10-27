@@ -15,9 +15,9 @@ export interface ErrorClassification {
   isQuotaExhausted: boolean;
 }
 
-/**
- * Clasifica estructuradamente un error HTTP / Gemini API para determinar
- * si es recuperable mediante reintentos con backoff exponencial.
+/*
+ Clasifica estructuradamente un error HTTP / Gemini API para determinar
+ si es recuperable mediante reintentos con backoff exponencial.
  */
 export function classifyError(error: unknown): ErrorClassification {
   let status: number | null = null;

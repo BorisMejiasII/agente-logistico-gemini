@@ -25,7 +25,6 @@ export class InventoryToolsExecutor {
     const stock = queryResult.availableStock;
     const canonicalKey = this.repository.getCanonicalProductKey(producto) ?? queryResult.metadata.productKey;
 
-    // Actualizar stock conocido en la máquina de estados con clave canónica
     this.stateMachine.updateAvailableStock(producto, stock, canonicalKey);
 
     return { stock, queryResult };
@@ -46,20 +45,18 @@ export class InventoryToolsExecutor {
       `Stock previo disponible: ${pendingOrder.availableStock}, ` +
       `Total requerido: ${pendingOrder.requiredQuantity}. Fecha: ${new Date().toISOString()}`;
 
-    // Log exigido en consola
     console.log(`\n\x1b[32m${logMessage}\x1b[0m\n`);
 
     return `STATUS_OK: Orden de compra emitida satisfactoriamente por ${cantidad} unidades de ${producto}.`;
   }
 
-  /**
-   * Valida estrictamente y ejecuta cualquier llamada a herramienta proveniente del LLM.
+  /*
+   Valida estrictamente y ejecuta cualquier llamada a herramienta proveniente del LLM.
    */
   public async executeToolCall(
     callName: string,
     rawArgs: Record<string, unknown>
   ): Promise<ToolExecutionResult> {
-    // 1. Verificar nombre estrictamente permitido
     if (callName !== 'consultar_stock' && callName !== 'emitir_orden_compra') {
       return {
         toolName: callName,
@@ -74,7 +71,6 @@ export class InventoryToolsExecutor {
 
     try {
       if (callName === 'consultar_stock') {
-        // 2. Validar argumentos estrictos
         const allowedKeys = ['producto'];
         const extraKeys = Object.keys(rawArgs).filter(k => !allowedKeys.includes(k));
         if (extraKeys.length > 0) {
@@ -100,7 +96,6 @@ export class InventoryToolsExecutor {
           };
         }
 
-        // Ejecutar firma
         const { stock, queryResult } = await this.consultar_stock(producto.trim());
 
         return {
@@ -120,7 +115,6 @@ export class InventoryToolsExecutor {
       }
 
       if (callName === 'emitir_orden_compra') {
-        // Validar argumentos estrictos
         const allowedKeys = ['producto', 'cantidad'];
         const extraKeys = Object.keys(rawArgs).filter(k => !allowedKeys.includes(k));
         if (extraKeys.length > 0) {
@@ -158,7 +152,6 @@ export class InventoryToolsExecutor {
           };
         }
 
-        // Ejecutar firma con validación determinista de máquina de estados
         const statusOk = this.emitir_orden_compra(producto.trim(), cantidad);
 
         return {
@@ -174,7 +167,6 @@ export class InventoryToolsExecutor {
         };
       }
 
-      // Caso imposible por guardia superior
       throw new Error(`Inalcanzable`);
     } catch (error: unknown) {
       if (error instanceof ProductNotFoundError) {
