@@ -412,6 +412,24 @@ describe('5. Auditoría de Integración y Repositorios en AgentController', () =
     expect(agent.stateMachine.getPendingOrder()).toBeNull();
     expect(agent.currentMode).toBe('unstructured');
   });
+
+  it('auditoría: propaga error MaxToolLoopsExceededError si se supera el límite de iteraciones de herramientas', async () => {
+    const { AgentController, MaxToolLoopsExceededError } = await import('../src/agent/agent-controller.js');
+    const mockRepo = new MockInventoryRepository();
+    const agent = new AgentController('dummy_api_key_test', 'gemini-2.5-flash', mockRepo, 'mock');
+
+    const infiniteLoopSession = {
+      sendMessage: async () => ({
+        functionCalls: [{ name: 'consultar_stock', args: { producto: 'Laptops ThinkPad' } }],
+        text: ''
+      })
+    };
+
+    (agent as unknown as { chatSession: unknown }).chatSession = infiniteLoopSession;
+
+    await expect(agent.handleUserMessage('Consulta stock continuamente'))
+      .rejects.toThrow(MaxToolLoopsExceededError);
+  });
 });
 
 describe('4. InventoryToolsExecutor (Validación de Herramientas y Function Calling)', () => {

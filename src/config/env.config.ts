@@ -18,7 +18,7 @@ const inventorySource: InventorySourceMode = rawSource === 'unstructured' ? 'uns
 
 export const config: AppConfig = {
   geminiApiKey: process.env.GEMINI_API_KEY?.trim() || undefined,
-  geminiModel: (process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash'),
+  geminiModel: (process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite'),
   inventorySource,
   unstructuredFilePath: path.resolve(process.cwd(), 'data', 'notas_de_inventario_desestructuradas.txt')
 };

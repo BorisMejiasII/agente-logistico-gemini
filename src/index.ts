@@ -125,7 +125,8 @@ async function main(): Promise<void> {
       } catch (err: unknown) {
         process.stdout.write('                     \r');
         const errorMsg = err instanceof Error ? err.message : String(err);
-        console.log(`\n${ANSI.red}${ANSI.bold}[ERROR AGENTE]${ANSI.reset} ${errorMsg}\n`);
+        console.log(`\n${ANSI.red}${ANSI.bold}[ERROR AGENTE]${ANSI.reset} ${errorMsg}`);
+        console.log(`${ANSI.dim}Puedes reintentar tu consulta, cambiar de modo o escribir 'salir' para finalizar.${ANSI.reset}\n`);
       }
     }
   } finally {

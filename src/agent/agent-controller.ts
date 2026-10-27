@@ -1,10 +1,18 @@
-import { GoogleGenAI, createPartFromFunctionResponse, Part } from '@google/genai';
+import { GoogleGenAI, Part } from '@google/genai';
 import { agentTools } from '../tools/tool-declarations.js';
 import { InventoryToolsExecutor } from '../tools/inventory.tools.js';
 import { OrderStateMachine } from '../tools/order-state-machine.js';
 import { IInventoryRepository } from '../domain/inventory.repository.js';
 import { SYSTEM_INSTRUCTIONS } from './system-instructions.js';
 import { InventorySourceMode } from '../config/env.config.js';
+import { withRetry, RetryOptions } from '../utils/retry.js';
+
+export class MaxToolLoopsExceededError extends Error {
+  constructor(public readonly maxLoops: number) {
+    super(`[MAX_LOOPS_EXCEEDED] Se alcanzó el límite máximo de iteraciones de herramientas (${maxLoops}) sin completar la operación. El proceso se detuvo por seguridad para preservar un estado consistente.`);
+    this.name = 'MaxToolLoopsExceededError';
+  }
+}
 
 export interface AgentResponse {
   text: string;
@@ -26,7 +34,8 @@ export class AgentController {
     private readonly apiKey: string,
     private readonly model: string,
     private inventoryRepo: IInventoryRepository,
-    public currentMode: InventorySourceMode
+    public currentMode: InventorySourceMode,
+    private readonly retryOptions: RetryOptions = {}
   ) {
     this.ai = new GoogleGenAI({ apiKey: this.apiKey });
     this.stateMachine = new OrderStateMachine();
@@ -77,10 +86,11 @@ export class AgentController {
     // 2. Procesar el mensaje a través de la máquina de estados determinista
     this.stateMachine.processUserMessage(userMessage);
 
-    // 3. Enviar mensaje a Gemini
-    let currentResponse = await this.chatSession!.sendMessage({
-      message: userMessage
-    });
+    // 3. Enviar mensaje a Gemini con política de reintentos
+    let currentResponse = await withRetry(
+      () => this.chatSession!.sendMessage({ message: userMessage }),
+      this.retryOptions
+    );
 
     // 4. Manejar ciclo de Function Calling si Gemini invoca herramientas
     let loopGuard = 0;
@@ -122,18 +132,16 @@ export class AgentController {
         functionResponseParts.push(responsePart);
       }
 
-      // Enviar las respuestas de las funciones de vuelta al modelo preservando el historial
-      currentResponse = await this.chatSession!.sendMessage({
-        message: functionResponseParts
-      });
+      // Enviar las respuestas de las funciones de vuelta al modelo preservando el historial con reintentos
+      currentResponse = await withRetry(
+        () => this.chatSession!.sendMessage({ message: functionResponseParts }),
+        this.retryOptions
+      );
     }
 
-    // Verificar si se alcanzó el límite máximo mientras aún quedaban llamadas pendientes
+    // Verificar si se alcanzó el límite máximo mientras aún quedaban llamadas pendientes (propagar error)
     if (loopGuard >= MAX_LOOPS && currentResponse.functionCalls && currentResponse.functionCalls.length > 0) {
-      return {
-        text: `[ERROR] Se alcanzó el límite máximo de iteraciones de herramientas (${MAX_LOOPS}) sin completar la operación. El proceso se detuvo por seguridad para preservar un estado consistente.`,
-        toolCallsExecuted: executedTools
-      };
+      throw new MaxToolLoopsExceededError(MAX_LOOPS);
     }
 
     const textOutput = currentResponse.text || (executedTools.length > 0 ? 'Herramientas ejecutadas correctamente.' : 'Sin respuesta del modelo.');

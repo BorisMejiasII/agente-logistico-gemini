@@ -9,7 +9,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:unit": "vitest run tests/inventory-and-state.test.ts",
+    "test:unit": "vitest run tests/inventory-and-state.test.ts tests/retry-and-resilience.test.ts",
     "test:integration": "vitest run tests/gemini-integration.test.ts"
   },
   "keywords": [
