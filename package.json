@@ -1,0 +1,36 @@
+{
+  "name": "agente-logistico-gemini",
+  "version": "1.0.0",
+  "description": "Agente Conversacional de Logística e Inventario con @google/genai, TypeScript y validación determinista",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/inventory-and-state.test.ts",
+    "test:integration": "vitest run tests/gemini-integration.test.ts"
+  },
+  "keywords": [
+    "gemini",
+    "google-genai",
+    "inventory",
+    "logistics",
+    "function-calling",
+    "state-machine",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^2.31.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
