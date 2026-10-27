@@ -13,6 +13,7 @@ export type PendingOrderState =
  */
 export interface PendingOrder {
   normalizedProduct: string;
+  canonicalProductKey: string;
   requiredQuantity: number;
   availableStock: number;
   missingQuantity: number;

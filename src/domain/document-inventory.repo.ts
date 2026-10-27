@@ -685,6 +685,11 @@ export class DocumentInventoryRepository implements IInventoryRepository {
     return this.findRecord(producto) !== undefined;
   }
 
+  public getCanonicalProductKey(producto: string): string | null {
+    const record = this.findRecord(producto);
+    return record ? record.productKey : null;
+  }
+
   public async consultarStock(producto: string): Promise<StockQueryResult> {
     const record = this.findRecord(producto);
     if (!record) {

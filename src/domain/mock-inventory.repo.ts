@@ -9,65 +9,78 @@ import { StockQueryResult } from './inventory.types.js';
 export class MockInventoryRepository implements IInventoryRepository {
   private readonly sessionStockCache = new Map<string, number>();
 
-  // Lista canónica de categorías y palabras clave válidas del dominio logístico IT / Oficina
-  private readonly validCatalogKeywords = [
-    'laptop', 'thinkpad', 'notebook', 'computador',
-    'mouse', 'raton', 'logitech',
-    'monitor', 'dell', 'pantalla',
-    'teclado', 'keyclickers',
-    'cable', 'hdmi', 'cat6', 'red', 'rj45',
-    'silla', 'ergonomica', 'mueblescorp',
-    'headset', 'jabra', 'auricular', 'audifono',
-    'docking', 'lenovo',
-    'proyector', 'epson',
-    'cafe', 'nespresso', 'cafetera',
-    'tinta', 'cartucho', 'cyan', 'magenta', 'amarillo', 'negro',
-    'disco', 'ssd', 'kingston', 'almacenamiento',
-    'adaptador', 'usb-c', 'usbc',
-    'escritorio', 'standing desk',
-    'iphone', 'galaxy', 'telefono', 'smartphone',
-    'polera', 'taza', 'cuaderno', 'mochila', 'merchandising',
-    'webcam', 'camara',
-    'licencia', 'windows', 'office',
-    'switch', 'cisco', 'ubiquiti',
-    'servidor', 'dell r740', 'hp proliant',
-    'router', 'mikrotik'
+  private readonly canonicalCategoryMap: Array<{ key: string; keywords: string[] }> = [
+    { key: 'laptops-thinkpad', keywords: ['laptop', 'thinkpad', 'notebook', 'computador'] },
+    { key: 'mouses-logitech', keywords: ['mouse', 'raton', 'logitech'] },
+    { key: 'monitores-dell-27', keywords: ['monitor', 'dell', 'pantalla'] },
+    { key: 'teclados-keyclickers', keywords: ['teclado', 'keyclickers'] },
+    { key: 'cables-hdmi', keywords: ['hdmi'] },
+    { key: 'sillas-ergonomicas', keywords: ['silla', 'ergonomica', 'mueblescorp'] },
+    { key: 'headsets-jabra', keywords: ['headset', 'jabra', 'auricular', 'audifono'] },
+    { key: 'docking-stations-lenovo', keywords: ['docking', 'lenovo'] },
+    { key: 'proyectores-epson', keywords: ['proyector', 'epson'] },
+    { key: 'maquina-cafe-nespresso', keywords: ['cafe', 'nespresso', 'cafetera'] },
+    { key: 'tinta-epson', keywords: ['tinta', 'cartucho', 'cyan', 'magenta', 'amarillo', 'negro'] },
+    { key: 'ssd-kingston', keywords: ['ssd', 'kingston', 'disco'] },
+    { key: 'adaptadores-usbc-hdmi', keywords: ['adaptador', 'usb-c', 'usbc'] },
+    { key: 'standing-desks', keywords: ['standing desk', 'escritorio'] },
+    { key: 'iphone-15', keywords: ['iphone'] },
+    { key: 'samsung-galaxy-s24', keywords: ['galaxy', 'samsung'] },
+    { key: 'poleras-corporativas', keywords: ['polera', 'remera'] },
+    { key: 'tazas-termicas', keywords: ['taza'] },
+    { key: 'cuadernos-institucionales', keywords: ['cuaderno'] },
+    { key: 'mochilas-corporativas', keywords: ['mochila'] },
+    { key: 'webcams-logitech', keywords: ['webcam', 'camara'] },
+    { key: 'licencias-windows-server', keywords: ['windows server'] },
+    { key: 'licencias-office', keywords: ['office'] },
+    { key: 'cable-red-cat6', keywords: ['cat6', 'cable de red'] },
+    { key: 'conectores-rj45', keywords: ['rj45', 'conector'] },
+    { key: 'switch-cisco', keywords: ['switch cisco', 'cisco'] },
+    { key: 'switch-ubiquiti', keywords: ['switch ubiquiti', 'ubiquiti'] },
+    { key: 'servidor-dell', keywords: ['servidor dell', 'r740'] },
+    { key: 'servidor-hp', keywords: ['servidor hp', 'proliant'] },
+    { key: 'router-mikrotik', keywords: ['router', 'mikrotik'] }
   ];
 
   public normalizeProductName(producto: string): string {
     return normalizeProductString(producto);
   }
 
-  public existsProduct(producto: string): boolean {
+  public getCanonicalProductKey(producto: string): string | null {
     const normalized = this.normalizeProductName(producto);
     if (!normalized || normalized.length < 2) {
-      return false;
+      return null;
     }
-    // Verificar si contiene al menos una palabra clave del catálogo
-    return this.validCatalogKeywords.some(keyword => {
-      const normKeyword = normalizeProductString(keyword);
-      return normalized.includes(normKeyword) || normKeyword.includes(normalized);
-    });
+    for (const cat of this.canonicalCategoryMap) {
+      if (cat.keywords.some(k => normalized.includes(normalizeProductString(k)))) {
+        return cat.key;
+      }
+    }
+    return null;
+  }
+
+  public existsProduct(producto: string): boolean {
+    return this.getCanonicalProductKey(producto) !== null;
   }
 
   public async consultarStock(producto: string): Promise<StockQueryResult> {
-    const normalized = this.normalizeProductName(producto);
-    if (!this.existsProduct(producto)) {
+    const canonicalKey = this.getCanonicalProductKey(producto);
+    if (!canonicalKey) {
       throw new ProductNotFoundError(producto);
     }
 
-    // Si ya fue consultado en esta sesión, devolver el mismo valor
-    let stock = this.sessionStockCache.get(normalized);
+    // Memorizar por clave canónica para coherencia absoluta en la sesión
+    let stock = this.sessionStockCache.get(canonicalKey);
     if (stock === undefined) {
       // Stock aleatorio entre 1 y 5 para reproducir fielmente el escenario del PDF
       stock = Math.floor(Math.random() * 5) + 1;
-      this.sessionStockCache.set(normalized, stock);
+      this.sessionStockCache.set(canonicalKey, stock);
     }
 
     return {
       availableStock: stock,
       metadata: {
-        productKey: normalized,
+        productKey: canonicalKey,
         displayName: producto,
         physicalStock: stock,
         availableStock: stock,
@@ -88,8 +101,8 @@ export class MockInventoryRepository implements IInventoryRepository {
    * Permite fijar un stock específico para pruebas deterministas
    */
   public setMockStock(producto: string, stock: number): void {
-    const normalized = this.normalizeProductName(producto);
-    this.sessionStockCache.set(normalized, stock);
+    const canonicalKey = this.getCanonicalProductKey(producto) ?? this.normalizeProductName(producto);
+    this.sessionStockCache.set(canonicalKey, stock);
   }
 
   /**

@@ -284,13 +284,133 @@ describe('3. OrderStateMachine (Máquina de Estados Determinista)', () => {
       .toThrow(OrderValidationError);
 
     // Cantidad exacta y producto correcto: éxito
-    const result = sm.validateAndExecuteOrder('Laptops ThinkPad', 7);
+    const result = sm.validateAndExecuteOrder('Laptops ThinkPad', 7, 'laptops-thinkpad');
     expect(result.success).toBe(true);
     expect(result.pendingOrder.state).toBe('COMPLETED');
 
     // Reintento de ejecutar la misma orden completada es rechazado (evita órdenes duplicadas)
-    expect(() => sm.validateAndExecuteOrder('Laptops ThinkPad', 7))
+    expect(() => sm.validateAndExecuteOrder('Laptops ThinkPad', 7, 'laptops-thinkpad'))
       .toThrow(OrderValidationError);
+  });
+
+  it('auditoría: rechaza confirmaciones accidentales en mensajes informativos o preguntas', () => {
+    // 1. "Muéstrame el inventario, por favor" -> NO debe confirmar
+    sm.registerOrUpdateRequirement('Laptops ThinkPad', 10, 'laptops-thinkpad', 3);
+    sm.processUserMessage('Muéstrame el inventario, por favor');
+    expect(sm.getPendingOrder()?.state).toBe('AWAITING_CONFIRMATION');
+    expect(sm.getLastAnalysis()?.isUnequivocalConfirmation).toBe(false);
+
+    // 2. "Sí, pero antes dime el precio" -> NO debe confirmar (condición / pregunta)
+    sm.processUserMessage('Sí, pero antes dime el precio');
+    expect(sm.getPendingOrder()?.state).toBe('AWAITING_CONFIRMATION');
+    expect(sm.getLastAnalysis()?.isUnequivocalConfirmation).toBe(false);
+
+    // 3. "¿Podrías revisar otra vez el stock?" -> NO debe confirmar (pregunta)
+    sm.processUserMessage('¿Podrías revisar otra vez el stock?');
+    expect(sm.getPendingOrder()?.state).toBe('AWAITING_CONFIRMATION');
+    expect(sm.getLastAnalysis()?.isUnequivocalConfirmation).toBe(false);
+
+    // 4. "No, todavía no compres" -> debe cancelar / no autorizar
+    sm.processUserMessage('No, todavía no compres');
+    expect(sm.getPendingOrder()?.state).toBe('CANCELLED');
+    expect(sm.getLastAnalysis()?.isCancellation).toBe(true);
+    expect(sm.getLastAnalysis()?.isUnequivocalConfirmation).toBe(false);
+
+    // 5. "Confirmo la compra de las 6 laptops faltantes" -> confirmación válida y explícita
+    sm.registerOrUpdateRequirement('Laptops ThinkPad', 10, 'laptops-thinkpad', 4); // Faltante: 6
+    sm.processUserMessage('Confirmo la compra de las 6 laptops faltantes');
+    expect(sm.getPendingOrder()?.state).toBe('CONFIRMED');
+    expect(sm.getLastAnalysis()?.isUnequivocalConfirmation).toBe(true);
+  });
+
+  it('auditoría: extracción de cantidades no confunde características con cantidades', () => {
+    // 1. "¿Tenemos monitores Dell de 27 pulgadas?" -> NO debe ser 27
+    const spec1 = sm.extractRequirementFromText('¿Tenemos monitores Dell de 27 pulgadas?');
+    expect(spec1).toBeNull();
+
+    // 2. "¿Hay switches de 48 puertos o cables de 1000 metros?" -> NO debe ser 48 ni 1000
+    const spec2 = sm.extractRequirementFromText('¿Hay switches de 48 puertos o cables de 1000 metros?');
+    expect(spec2).toBeNull();
+
+    // 3. "¿Podrías revisar otra vez el stock?" -> null
+    const spec3 = sm.extractRequirementFromText('¿Podrías revisar otra vez el stock?');
+    expect(spec3).toBeNull();
+
+    // 4. "Muéstrame el inventario, por favor" -> null
+    const spec4 = sm.extractRequirementFromText('Muéstrame el inventario, por favor');
+    expect(spec4).toBeNull();
+
+    // 5. Escenario obligatorio: "Necesitamos equipar a 10 nuevos empleados con laptops" -> 10
+    const req1 = sm.extractRequirementFromText('Necesitamos equipar a 10 nuevos empleados con laptops');
+    expect(req1?.quantity).toBe(10);
+
+    // 6. "Requerimos 6 laptops ThinkPad adicionales" -> 6
+    const req2 = sm.extractRequirementFromText('Requerimos 6 laptops ThinkPad adicionales');
+    expect(req2?.quantity).toBe(6);
+
+    // 7. "Comprar 15 unidades de cables HDMI" -> 15
+    const req3 = sm.extractRequirementFromText('Comprar 15 unidades de cables HDMI');
+    expect(req3?.quantity).toBe(15);
+  });
+
+  it('auditoría: identidad canónica estricta del producto impide coincidencias indebidas', () => {
+    sm.registerOrUpdateRequirement('Laptops ThinkPad', 10, 'laptops-thinkpad', 3);
+    sm.processUserMessage('Confirmo la compra de los faltantes');
+    expect(sm.getPendingOrder()?.state).toBe('CONFIRMED');
+
+    // Intentar validar con producto canónico distinto lanza PRODUCT_MISMATCH
+    expect(() => sm.validateAndExecuteOrder('Monitores Dell 27', 7, 'monitores-dell-27'))
+      .toThrowError(/PRODUCT_MISMATCH/);
+
+    // Validar con la clave canónica correcta tiene éxito
+    const ok = sm.validateAndExecuteOrder('Laptops ThinkPad', 7, 'laptops-thinkpad');
+    expect(ok.success).toBe(true);
+  });
+
+  it('auditoría: invalidación de autorizaciones anteriores al modificar producto, cantidad o stock', () => {
+    // 1. Establecer orden y confirmarla
+    sm.registerOrUpdateRequirement('Laptops ThinkPad', 10, 'laptops-thinkpad', 3);
+    sm.processUserMessage('Confirmo la compra de los 7 faltantes');
+    expect(sm.getPendingOrder()?.state).toBe('CONFIRMED');
+
+    // 2. Modificar la necesidad a 12 unidades: DEBE invalidar CONFIRMED y pasar a AWAITING_CONFIRMATION
+    const updated = sm.registerOrUpdateRequirement('Laptops ThinkPad', 12, 'laptops-thinkpad', 3);
+    expect(updated.state).toBe('AWAITING_CONFIRMATION');
+    expect(updated.missingQuantity).toBe(9);
+
+    // 3. Si se actualiza el stock disponible conocido de 3 a 5, debe invalidar y recalcular
+    sm.processUserMessage('Confirmo la compra de las 9 unidades');
+    expect(sm.getPendingOrder()?.state).toBe('CONFIRMED');
+
+    sm.updateAvailableStock('Laptops ThinkPad', 5, 'laptops-thinkpad');
+    expect(sm.getPendingOrder()?.state).toBe('AWAITING_CONFIRMATION');
+    expect(sm.getPendingOrder()?.missingQuantity).toBe(7); // 12 - 5 = 7
+
+    // 4. Cambiar de producto a Monitores Dell: no debe heredar stock de Laptops
+    const newProd = sm.registerOrUpdateRequirement('Monitores Dell 27', 5, 'monitores-dell-27');
+    expect(newProd.availableStock).toBe(0); // No reutiliza el stock de laptops (5)
+    expect(newProd.state).toBe('AWAITING_CONFIRMATION');
+  });
+});
+
+describe('5. Auditoría de Integración y Repositorios en AgentController', () => {
+  it('auditoría: setRepository invalida operaciones pendientes y reinicia máquina de estados', async () => {
+    const { AgentController } = await import('../src/agent/agent-controller.js');
+    const mockRepo = new MockInventoryRepository();
+    const docRepo = new DocumentInventoryRepository();
+
+    const agent = new AgentController('dummy_api_key_test', 'gemini-2.5-flash', mockRepo, 'mock');
+
+    // Crear una orden pendiente en modo mock
+    agent.stateMachine.registerOrUpdateRequirement('Laptops ThinkPad', 10, 'laptops-thinkpad', 3);
+    expect(agent.stateMachine.getPendingOrder()).not.toBeNull();
+
+    // Cambiar a modo unstructured
+    agent.setRepository(docRepo, 'unstructured');
+
+    // La orden pendiente debe haberse reseteado a null
+    expect(agent.stateMachine.getPendingOrder()).toBeNull();
+    expect(agent.currentMode).toBe('unstructured');
   });
 });
 

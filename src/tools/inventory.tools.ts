@@ -23,9 +23,10 @@ export class InventoryToolsExecutor {
   public async consultar_stock(producto: string): Promise<{ stock: number; queryResult: StockQueryResult }> {
     const queryResult = await this.repository.consultarStock(producto);
     const stock = queryResult.availableStock;
+    const canonicalKey = this.repository.getCanonicalProductKey(producto) ?? queryResult.metadata.productKey;
 
-    // Actualizar stock conocido en la máquina de estados
-    this.stateMachine.updateAvailableStock(producto, stock);
+    // Actualizar stock conocido en la máquina de estados con clave canónica
+    this.stateMachine.updateAvailableStock(producto, stock, canonicalKey);
 
     return { stock, queryResult };
   }
@@ -36,8 +37,9 @@ export class InventoryToolsExecutor {
    * Imprime en consola un log del sistema confirmando la compra y retorna un string de status OK al agente.
    */
   public emitir_orden_compra(producto: string, cantidad: number): string {
-    // Valida con la máquina de estados determinista
-    const { pendingOrder } = this.stateMachine.validateAndExecuteOrder(producto, cantidad);
+    const canonicalKey = this.repository.getCanonicalProductKey(producto) ?? undefined;
+    // Valida con la máquina de estados determinista y clave canónica
+    const { pendingOrder } = this.stateMachine.validateAndExecuteOrder(producto, cantidad, canonicalKey);
 
     const logMessage = `[SISTEMA - LOGÍSTICA] ORDEN DE COMPRA EMITIDA CON ÉXITO: ` +
       `${cantidad} unidad(es) de '${producto}'. ` +

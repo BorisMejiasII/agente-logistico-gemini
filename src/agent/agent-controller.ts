@@ -37,6 +37,10 @@ export class AgentController {
   public setRepository(repo: IInventoryRepository, mode: InventorySourceMode): void {
     this.inventoryRepo = repo;
     this.currentMode = mode;
+    // Invalidar cualquier operación previa y restablecer la máquina de estados
+    this.stateMachine.reset();
+    // Reiniciar la sesión de chat para evitar contexto conversacional incompatible con la nueva fuente
+    this.initChat();
     this.toolsExecutor = new InventoryToolsExecutor(this.inventoryRepo, this.stateMachine);
   }
 
@@ -92,7 +96,8 @@ export class AgentController {
 
         // Si es una consulta de stock y se detectó una cantidad requerida en el turno
         if (toolName === 'consultar_stock' && extracted?.quantity && typeof toolArgs.producto === 'string') {
-          this.stateMachine.registerOrUpdateRequirement(toolArgs.producto, extracted.quantity);
+          const canonicalKey = this.inventoryRepo.getCanonicalProductKey(toolArgs.producto) ?? undefined;
+          this.stateMachine.registerOrUpdateRequirement(toolArgs.producto, extracted.quantity, canonicalKey);
         }
 
         // Ejecución segura y validada de la herramienta
@@ -105,12 +110,14 @@ export class AgentController {
           output: execResult.payload
         });
 
-        // Crear parte nativa FunctionResponse oficial de @google/genai
-        const responsePart = createPartFromFunctionResponse(
-          call.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          toolName,
-          execResult.payload
-        );
+        // Crear parte nativa FunctionResponse oficial de @google/genai sin inventar IDs artificiales
+        const responsePart: Part = {
+          functionResponse: {
+            ...(call.id ? { id: call.id } : {}),
+            name: toolName,
+            response: execResult.payload
+          }
+        };
 
         functionResponseParts.push(responsePart);
       }
@@ -121,7 +128,15 @@ export class AgentController {
       });
     }
 
-    const textOutput = currentResponse.text || 'Operación completada.';
+    // Verificar si se alcanzó el límite máximo mientras aún quedaban llamadas pendientes
+    if (loopGuard >= MAX_LOOPS && currentResponse.functionCalls && currentResponse.functionCalls.length > 0) {
+      return {
+        text: `[ERROR] Se alcanzó el límite máximo de iteraciones de herramientas (${MAX_LOOPS}) sin completar la operación. El proceso se detuvo por seguridad para preservar un estado consistente.`,
+        toolCallsExecuted: executedTools
+      };
+    }
+
+    const textOutput = currentResponse.text || (executedTools.length > 0 ? 'Herramientas ejecutadas correctamente.' : 'Sin respuesta del modelo.');
 
     return {
       text: textOutput,

@@ -18,6 +18,7 @@ export interface IInventoryRepository {
   consultarStock(producto: string): Promise<StockQueryResult>;
   existsProduct(producto: string): boolean;
   normalizeProductName(producto: string): string;
+  getCanonicalProductKey(producto: string): string | null;
   getAllProducts?(): InventoryRecord[];
 }
 

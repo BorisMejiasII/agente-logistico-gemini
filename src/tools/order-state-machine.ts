@@ -3,7 +3,7 @@ import { normalizeProductString } from '../domain/inventory.repository.js';
 
 export class OrderValidationError extends Error {
   constructor(public readonly code: string, message: string) {
-    super(message);
+    super(`[${code}] ${message}`);
     this.name = 'OrderValidationError';
   }
 }
@@ -32,28 +32,44 @@ export class OrderStateMachine {
 
   /**
    * Registra o actualiza una operación pendiente al consultar stock o declarar una necesidad.
+   * Regla de seguridad: Cualquier cambio en producto, cantidad o stock invalida cualquier
+   * confirmación anterior y exige una nueva confirmación expresa.
    */
   public registerOrUpdateRequirement(
     product: string,
     requiredQuantity: number,
+    canonicalProductKeyOrStock?: string | number,
     availableStock?: number
   ): PendingOrder {
     const normProduct = normalizeProductString(product);
-    const avail = availableStock !== undefined ? availableStock : (this.pendingOrder?.availableStock ?? 0);
-    const missing = Math.max(0, requiredQuantity - avail);
+    let canonicalKey: string;
+    let availStock: number;
 
-    const isDifferentProduct = this.pendingOrder && this.pendingOrder.normalizedProduct !== normProduct;
-    const isDifferentQuantity = this.pendingOrder && this.pendingOrder.requiredQuantity !== requiredQuantity;
+    if (typeof canonicalProductKeyOrStock === 'number') {
+      availStock = canonicalProductKeyOrStock;
+      canonicalKey = normProduct;
+    } else {
+      canonicalKey = canonicalProductKeyOrStock || normProduct;
+      availStock = availableStock !== undefined ? availableStock : 0;
+    }
 
-    // Si cambia el producto o la cantidad, o si no existía orden, se exige nueva confirmación
+    // Si es el mismo producto canónico y no se especificó nuevo stock, conservar stock previo
+    if (this.pendingOrder && this.pendingOrder.canonicalProductKey === canonicalKey && availableStock === undefined && typeof canonicalProductKeyOrStock !== 'number') {
+      availStock = this.pendingOrder.availableStock;
+    }
+
+    const missing = Math.max(0, requiredQuantity - availStock);
+
+    // Cualquier registro nuevo o modificación invalida autorizaciones pasadas y pasa a AWAITING_CONFIRMATION
     const newState: PendingOrderState = missing > 0 ? 'AWAITING_CONFIRMATION' : 'NONE';
 
     this.pendingOrder = {
       normalizedProduct: normProduct,
+      canonicalProductKey: canonicalKey,
       requiredQuantity,
-      availableStock: avail,
+      availableStock: availStock,
       missingQuantity: missing,
-      state: (isDifferentProduct || isDifferentQuantity) ? newState : (this.pendingOrder?.state ?? newState),
+      state: newState,
       createdAt: this.pendingOrder?.createdAt ?? new Date(),
       updatedAt: new Date()
     };
@@ -63,19 +79,31 @@ export class OrderStateMachine {
 
   /**
    * Actualiza el stock disponible conocido de la operación pendiente actual.
+   * Utiliza la clave canónica del producto para evitar cruces indebidos de existencias.
    */
-  public updateAvailableStock(product: string, availableStock: number): PendingOrder | null {
-    const normProduct = normalizeProductString(product);
+  public updateAvailableStock(
+    product: string,
+    availableStock: number,
+    canonicalProductKey?: string
+  ): PendingOrder | null {
     if (!this.pendingOrder) {
       return null;
     }
 
-    if (this.pendingOrder.normalizedProduct === normProduct ||
-        this.pendingOrder.normalizedProduct.includes(normProduct) ||
-        normProduct.includes(this.pendingOrder.normalizedProduct)) {
+    const normProduct = normalizeProductString(product);
+    const resolvedCanonical = canonicalProductKey || normProduct;
+
+    // Solo actualizar si coincide exactamente con la clave canónica del producto pendiente
+    if (this.pendingOrder.canonicalProductKey === resolvedCanonical) {
+      const stockChanged = this.pendingOrder.availableStock !== availableStock;
       this.pendingOrder.availableStock = availableStock;
       this.pendingOrder.missingQuantity = Math.max(0, this.pendingOrder.requiredQuantity - availableStock);
-      this.pendingOrder.state = this.pendingOrder.missingQuantity > 0 ? 'AWAITING_CONFIRMATION' : 'NONE';
+
+      // Si el stock cambió o si hay faltante, invalidar autorizaciones previas
+      if (stockChanged || this.pendingOrder.state === 'CONFIRMED') {
+        this.pendingOrder.state = this.pendingOrder.missingQuantity > 0 ? 'AWAITING_CONFIRMATION' : 'NONE';
+      }
+
       this.pendingOrder.updatedAt = new Date();
       return { ...this.pendingOrder };
     }
@@ -92,59 +120,73 @@ export class OrderStateMachine {
     const cleanLower = raw.toLowerCase();
     const normalized = normalizeProductString(raw);
 
-    // 1. Detección de preguntas: signos de interrogación o pronombres interrogativos
+    // 1. Detección de preguntas, consultas o solicitudes de información
     const hasQuestionMark = /[?¿]/.test(raw);
-    const questionWords = /\b(cuanto|cuantos|cuanta|cuantas|cuando|donde|por que|precio|costo|tardan|demoran|que pasa|como|quien)\b/i;
-    const hasQuestion = hasQuestionMark || questionWords.test(normalized);
+    const questionWords = /\b(cuanto|cuantos|cuanta|cuantas|cuando|donde|por que|precio|costo|tardan|demoran|que pasa|como|quien|podrias|podr[ií]as|puedes)\b/i;
+    // Solicitudes informativas que jamás deben considerarse confirmaciones (ej. "Muéstrame el inventario, por favor")
+    const infoRequestWords = /\b(muestrame|mu[eé]strame|muestra|dime|revisa|revisar|ver|consulta|consultar|inventario|catalogo|stock)\b/i;
+    const isInfoRequest = infoRequestWords.test(normalized) && !/\b(compra|comprar|orden|pedido)\b/i.test(normalized);
+    const hasQuestion = hasQuestionMark || questionWords.test(normalized) || isInfoRequest;
 
     // 2. Detección de ambigüedad o duda
     // Ej: "tal vez", "quizás", "déjame ver", "creo que sí pero no estoy seguro", "lo voy a pensar"
     const ambiguityPattern = /\b(tal vez|quizas|quizás|dejame ver|d[eé]jame ver|dejame pensar|d[eé]jame pensar|creo que|no estoy seguro|no estoy segura|lo voy a pensar|lo pensar[eé]|a lo mejor|puede ser|no s[eé]|no se|depende|probablemente|en duda)\b/i;
     const isAmbiguous = ambiguityPattern.test(cleanLower);
 
-    // 3. Detección de cancelación o rechazo
-    // Ej: "no", "cancela", "cancelar", "mejor no", "olvídalo", "abortar", "no quiero", "no compres"
-    // Cuidado: Si el usuario dice "no estoy seguro", eso es ambigüedad, NO cancelación
-    const pureCancelKeywords = /\b(cancelar?|cancela|cancelalo|abortar?|olvidalo|olv[ií]dalo|deten|detente|mejor no|desiste|rechaza|no compres|no emitas|no hacer la orden|no la hagas)\b/i;
-    const directNegative = /^(no|nop|noup|no gracias|no por favor|para nada)([.!,]|$)/i.test(cleanLower) ||
-      /\b(no quiero|no autorizo|no procedas)\b/i.test(cleanLower);
-    
-    // Si contiene duda ("no estoy seguro"), no es cancelación
-    const isCancellation = (pureCancelKeywords.test(cleanLower) || directNegative) && !isAmbiguous;
-
-    // 4. Detección de condicionalidad
-    // Ej: "sí, pero solo si llegan mañana", "siempre y cuando", "a condición de"
-    const conditionalPattern = /\b(pero solo si|pero si|solo si|siempre y cuando|a condicion de|a condici[oó]n de|siempre que|con la condicion|con la condici[oó]n|a menos que)\b/i;
+    // 3. Detección de condicionalidad o prerrequisitos
+    // Ej: "sí, pero solo si llegan mañana", "sí, pero antes dime el precio", "siempre y cuando"
+    const conditionalPattern = /\b(pero solo si|pero si|solo si|siempre y cuando|a condicion de|a condici[oó]n de|siempre que|con la condicion|con la condici[oó]n|a menos que|pero antes|antes dime|antes de)\b/i;
     const isConditional = conditionalPattern.test(cleanLower);
 
-    // 5. Detección de confirmación inequívoca
-    // Frases explícitas afirmativas de autorización
-    const explicitAffirmatives = [
-      'procede', 'proceder', 'adelante', 'hazlo', 'emite la orden', 'emitir orden',
-      'confirmo', 'confirmado', 'autorizo', 'autorizado', 'de acuerdo', 'dale',
-      'procede con la compra', 'procede a comprar', 'haz la compra', 'compra los faltantes',
-      'compra las unidades', 'compralas', 'compralos', 'aprobado', 'afirmativo',
-      'por favor', 'si por favor', 'si procede', 'si adelante', 'si autorizo',
-      'si compra', 'si emite', 'si de acuerdo', 'si confirmado', 'está bien', 'esta bien'
+    // 4. Detección de cancelación, rechazo o postergación
+    // Ej: "no", "cancela", "cancelar", "mejor no", "olvídalo", "no todavía no compres", "todavía no"
+    const pureCancelKeywords = /\b(cancelar?|cancela|cancelalo|abortar?|olvidalo|olv[ií]dalo|deten|detente|mejor no|desiste|rechaza|no compres|no emitas|no hacer la orden|no la hagas|todavia no|todav[ií]a no|aun no|a[uú]n no|espera|esperate)\b/i;
+    const directNegative = /^(no|nop|noup)([.!,]|$)/i.test(cleanLower) ||
+      /\b(no quiero|no autorizo|no procedas|no gracias|no por favor|para nada)\b/i.test(cleanLower);
+
+    // Si contiene duda ("no estoy seguro"), no es cancelación definitiva
+    const isCancellation = (pureCancelKeywords.test(cleanLower) || directNegative) && !isAmbiguous;
+
+    // 5. Detección de confirmación explícita e inequívoca
+    // Exige frases explícitas de autorización para la compra/orden (NO frases sueltas como "por favor")
+    const explicitPurchasePhrases = [
+      'confirmo la compra',
+      'confirmo el pedido',
+      'autorizo la compra',
+      'autorizo el pedido',
+      'procede con la compra',
+      'procede a comprar',
+      'emite la orden',
+      'emitir la orden',
+      'emite la orden de compra',
+      'haz la compra',
+      'proceder con la compra',
+      'compra los faltantes',
+      'comprar los faltantes',
+      'compra las unidades',
+      'comprar las unidades',
+      'compralas',
+      'compralos'
     ];
 
-    const containsExplicitAffirmative = explicitAffirmatives.some(phrase => {
+    const hasExplicitPurchasePhrase = explicitPurchasePhrases.some(phrase => {
       const normPhrase = normalizeProductString(phrase);
       return normalized.includes(normPhrase);
     });
 
-    // También considerar respuestas directas cortas afirmativas inequívocas (ej. "sí", "si", "claro", "por supuesto")
-    // ÚNICAMENTE cuando NO están contaminadas por preguntas, ambigüedades, condiciones o negaciones
-    const isShortAffirmative = /^(s[ií]|claro|por supuesto|ok|dale|adelante|afirmativo|procede|de acuerdo)(\s+por\s+favor)?$/i.test(raw.replace(/[.,!]/g, '').trim());
+    // Frases del tipo "Confirmo la compra de las 6 laptops faltantes", "Autorizo la compra", "Adelante con la orden", "De acuerdo, emite la orden"
+    const hasAuthorizationPattern =
+      /\b(confirmo|confirmado|autorizo|autorizado|aprobado|adelante|procede|dale|hazlo)\b/i.test(normalized) &&
+      /\b(compra|comprar|orden|pedido|faltante|faltantes|unidades|laptops|equipos)\b/i.test(normalized);
 
-    // La confirmación es inequívoca SOLO si:
-    // - Hay afirmación explícita o respuesta directa
-    // - NO hay cancelación
-    // - NO hay ambigüedad
-    // - NO hay condicionalidad
-    // - NO hay nuevas preguntas
+    // Respuestas directas inequívocas y limpias al ser preguntado por confirmación
+    const isCleanDirectDirective = /^(s[ií]|adelante|procede|hazlo|dale)(\s*,\s*(procede|adelante|hazlo|dale|emite la orden|por favor))?\.?$/i.test(raw);
+
+    // Política estrictamente conservadora:
+    // La confirmación SOLO es válida si hay autorización explícita Y NO existe ninguna ambigüedad,
+    // pregunta, condición o cancelación.
     const isUnequivocalConfirmation =
-      (containsExplicitAffirmative || isShortAffirmative) &&
+      (hasExplicitPurchasePhrase || hasAuthorizationPattern || isCleanDirectDirective) &&
       !isCancellation &&
       !isAmbiguous &&
       !isConditional &&
@@ -152,11 +194,11 @@ export class OrderStateMachine {
 
     let reason = 'Mensaje procesado.';
     if (isCancellation) {
-      reason = 'El usuario indicó cancelación o negación.';
+      reason = 'El usuario indicó cancelación, rechazo o postergación.';
     } else if (hasQuestion) {
-      reason = 'El mensaje contiene una pregunta o duda sobre costo/tiempo; requiere respuesta previa antes de autorizar.';
+      reason = 'El mensaje contiene una pregunta, consulta o solicitud informativa; requiere atención antes de autorizar.';
     } else if (isConditional) {
-      reason = 'El usuario estableció una condición previa a la compra; no es autorización inequívoca.';
+      reason = 'El usuario estableció una condición o prerrequisito previo a la compra; no es autorización inequívoca.';
     } else if (isAmbiguous) {
       reason = 'El usuario respondió con ambigüedad o duda; no constituye confirmación suficiente.';
     } else if (isUnequivocalConfirmation) {
@@ -196,39 +238,65 @@ export class OrderStateMachine {
         this.pendingOrder.state = 'CONFIRMED';
         this.pendingOrder.updatedAt = new Date();
       } else {
-        // Si hay ambigüedad, condiciones o preguntas, permanece en AWAITING_CONFIRMATION
+        // Ante cualquier ambigüedad, condiciones o preguntas, permanece en AWAITING_CONFIRMATION
         this.pendingOrder.state = 'AWAITING_CONFIRMATION';
       }
     }
   }
 
   /**
-   * Intenta extraer una necesidad declarada por el usuario en lenguaje natural
-   * (ej. "Necesitamos equipar a 10 nuevos empleados con laptops ThinkPad").
+   * Extrae la necesidad de cantidad declarada por el usuario en lenguaje natural.
+   * Evita confundir especificaciones del producto (ej. 27 pulgadas, 48 puertos, Cat6, etc.) con cantidades.
    */
-  public extractRequirementFromText(text: string): { product?: string; quantity?: number } | null {
-    // Buscar patrones numéricos asociados a productos o personas
-    const qtyRegex = /(?:necesitamos|requerimos|equipar\s+a|para|comprar|pedir|solicitar)?\s*(\d+)\s*(?:nuevos?\s+empleados?\s+(?:con|de)|unidades?\s+de|equipos?\s+de|laptops?|notebooks?|monitores?|mouses?|teclados?)/i;
-    const match = text.match(qtyRegex);
-    let quantity: number | undefined;
+  public extractRequirementFromText(text: string): { quantity?: number } | null {
+    const clean = text.trim();
 
-    if (match && match[1]) {
-      quantity = parseInt(match[1], 10);
-    } else {
-      // Buscar simplemente cualquier entero positivo en el mensaje si viene de una frase de solicitud
-      const simpleNum = text.match(/\b(\d+)\b/);
-      if (simpleNum && simpleNum[1]) {
-        quantity = parseInt(simpleNum[1], 10);
+    // 1. Filtrar o descartar falsos positivos de especificaciones técnicas:
+    // "27 pulgadas", "27"", "48 puertos", "24 puertos", "1000 metros", "cat6", "1tb", "office 2021", etc.
+    // Solo extraemos si el número está asociado a una expresión explícita de requerimiento de dotación/compra:
+
+    // Patrón A: "necesitamos / requerimos / hacen falta / equipar a X personas/empleados/laptops/..."
+    const requirementPattern = /(?:necesitamos|requerimos|precisamos|hacen\s+falta|solicitamos|para\s+equipar\s+a|equipar\s+a)\s+(\d+)\s*(?:nuevos?\s+empleados?|empleados?|personas?|usuarios?|trabajadores?|colaboradores?|unidades?|equipos?|laptops?|notebooks?|monitores?|mouses?|teclados?|sillas?|headsets?)?/i;
+    const matchA = clean.match(requirementPattern);
+    if (matchA && matchA[1]) {
+      const q = parseInt(matchA[1], 10);
+      if (Number.isInteger(q) && q > 0) {
+        return { quantity: q };
       }
     }
 
-    return quantity && Number.isInteger(quantity) && quantity > 0 ? { quantity } : null;
+    // Patrón B: "comprar / pedir / solicitar X unidades / equipos de ..."
+    const buyPattern = /(?:comprar|pedir|solicitar|adquirir|ordenar)\s+(\d+)\s*(?:unidades?|equipos?|piezas?|laptops?|notebooks?|monitores?|mouses?|teclados?|sillas?|headsets?)/i;
+    const matchB = clean.match(buyPattern);
+    if (matchB && matchB[1]) {
+      const q = parseInt(matchB[1], 10);
+      if (Number.isInteger(q) && q > 0) {
+        return { quantity: q };
+      }
+    }
+
+    // Patrón C: "X unidades de ..." o "X equipos de ..." explícitos
+    const explicitUnitPattern = /\b(\d+)\s+(?:unidades|equipos)\s+(?:de\s+)?(?:laptops?|notebooks?|monitores?|mouses?|teclados?|sillas?|headsets?)/i;
+    const matchC = clean.match(explicitUnitPattern);
+    if (matchC && matchC[1]) {
+      const q = parseInt(matchC[1], 10);
+      if (Number.isInteger(q) && q > 0) {
+        return { quantity: q };
+      }
+    }
+
+    // No se realiza extracción numérica genérica para evitar alucinaciones con características del producto
+    return null;
   }
 
   /**
    * Valida estrictamente si `emitir_orden_compra` puede ejecutarse según las 6 reglas obligatorias.
    */
-  public validateAndExecuteOrder(product: string, quantity: number): { success: true; pendingOrder: PendingOrder } {
+  public validateAndExecuteOrder(
+    product: string,
+    quantity: number,
+    canonicalProductKey?: string
+  ): { success: true; pendingOrder: PendingOrder } {
     if (!this.pendingOrder) {
       throw new OrderValidationError(
         'NO_PENDING_ORDER',
@@ -260,17 +328,17 @@ export class OrderStateMachine {
       );
     }
 
-    // Regla 3: El producto solicitado coincida exactamente (tras normalización) con normalizedProduct
+    // Regla 3: Identidad estricta del producto mediante clave canónica controlada
     const normProduct = normalizeProductString(product);
-    const matchesProduct =
-      normProduct === this.pendingOrder.normalizedProduct ||
-      this.pendingOrder.normalizedProduct.includes(normProduct) ||
-      normProduct.includes(this.pendingOrder.normalizedProduct);
+    const resolvedCanonical = canonicalProductKey || normProduct;
 
-    if (!matchesProduct) {
+    const matchesCanonical = resolvedCanonical === this.pendingOrder.canonicalProductKey;
+    const matchesNormalized = normProduct === this.pendingOrder.normalizedProduct;
+
+    if (!matchesCanonical && !matchesNormalized) {
       throw new OrderValidationError(
         'PRODUCT_MISMATCH',
-        `El producto solicitado para la orden ('${product}') no coincide con la solicitud pendiente ('${this.pendingOrder.normalizedProduct}').`
+        `El producto solicitado para la orden ('${product}' [${resolvedCanonical}]) no coincide exactamente con el producto autorizado ('${this.pendingOrder.normalizedProduct}' [${this.pendingOrder.canonicalProductKey}]).`
       );
     }
 
