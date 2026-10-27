@@ -20,7 +20,7 @@ export class DocumentInventoryRepository implements IInventoryRepository {
       isEstimated: false,
       requiresSpecialAuth: false,
       sourceTrace: 'Logs Marcos T. (Lunes 12 y Lunes 19) y Guardia (Sábado 17)',
-      uncertaintyNotes: '15 en manifiesto inicial (-3 trizadas devueltas a TechGlobal + 5 devueltas por Marketing - 2 robadas en la bóveda el fin de semana = 15 disponibles).'
+      uncertaintyNotes: '15 en manifiesto inicial (-3 con pantalla trizada devueltas al proveedor TechGlobal + 5 devueltas por Marketing - 2 robadas en la bóveda el fin de semana = 15 disponibles físicas para asignación). Las 3 defectuosas fueron devueltas al proveedor TechGlobal (no se encuentran en reparación).'
     },
     {
       productKey: 'mouses-logitech',

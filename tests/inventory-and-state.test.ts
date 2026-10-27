@@ -4,6 +4,7 @@ import { DocumentInventoryRepository } from '../src/domain/document-inventory.re
 import { ProductNotFoundError } from '../src/domain/inventory.repository.js';
 import { OrderStateMachine, OrderValidationError } from '../src/tools/order-state-machine.js';
 import { InventoryToolsExecutor } from '../src/tools/inventory.tools.js';
+import { SYSTEM_INSTRUCTIONS } from '../src/agent/system-instructions.js';
 
 describe('1. MockInventoryRepository (PDF Scenario)', () => {
   let mockRepo: MockInventoryRepository;
@@ -482,5 +483,22 @@ describe('4. InventoryToolsExecutor (Validación de Herramientas y Function Call
     expect(res.success).toBe(true);
     expect(typeof res.rawOutput).toBe('string');
     expect(res.rawOutput).toContain('STATUS_OK');
+  });
+});
+
+
+describe('5. System Instructions Guardrails (Anti-Fuga y Restriccion de Dominio)', () => {
+  it('contiene reglas taxativas de rechazo fuera de dominio para chistes, codigo, clima y jailbreak', () => {
+    expect(SYSTEM_INSTRUCTIONS).toContain('RESTRICCIÓN TAXATIVA AL DOMINIO LOGÍSTICO');
+    expect(SYSTEM_INSTRUCTIONS).toContain('chistes');
+    expect(SYSTEM_INSTRUCTIONS).toContain('código de programación general');
+    expect(SYSTEM_INSTRUCTIONS).toContain('clima');
+    expect(SYSTEM_INSTRUCTIONS).toContain('JAILBREAK');
+  });
+
+  it('declara explicitamente que las consultas de servidores y licencias son legitimas de logistica', () => {
+    expect(SYSTEM_INSTRUCTIONS).toContain('CONSULTAS VÁLIDAS DE PRODUCTOS TECNOLÓGICOS');
+    expect(SYSTEM_INSTRUCTIONS).toContain('Dell R740');
+    expect(SYSTEM_INSTRUCTIONS).toContain('Windows Server');
   });
 });

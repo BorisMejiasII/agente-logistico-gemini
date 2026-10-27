@@ -53,15 +53,26 @@ No se delega la seguridad financiera únicamente al System Prompt. El código va
      $$\text{cantidad} = \text{missingQuantity} = \max(0, \text{requiredQuantity} - \text{availableStock})$$
   5. Una vez emitida, la orden pasa a `COMPLETED`, impidiendo órdenes duplicadas o re-ejecuciones.
 
+### 4. Estrategia de Manejo de Memoria e Historial
+El agente utiliza una sesión conversacional persistente de `@google/genai` que preserva íntegramente la alternancia estricta entre turnos de usuario, llamadas a herramientas del modelo y respuestas estructuradas `FunctionResponse`. En caso de fallos de red transitorios (como errores 503 o 429 temporales), la política de reintentos con retroceso exponencial (`withRetry`) no registra turnos fallidos en el historial, garantizando que tras una recuperación exitosa no se generen mensajes duplicados ni desincronización de contexto.
+
+Adicionalmente, la memoria conversacional se desacopla del estado transaccional mediante una máquina de estados determinista (`OrderStateMachine`). La información cuantitativa crítica (stock consultado, cantidad requerida y faltante exacto) se valida en memoria local de la aplicación; cualquier cambio de producto, cantidad o stock invalida inmediatamente autorizaciones previas (`AWAITING_CONFIRMATION`), impidiendo que el LLM reutilice o alucine autorizaciones pasadas en turnos futuros.
+
 ---
 
 ## 📋 Auditoría del Inventario Desestructurado (`INVENTORY_SOURCE=unstructured`)
+
+### Consolidación y Representación Tipada del Inventario
+- **Análisis previo y consolidación:** Los datos del documento original ([`data/notas_de_inventario_desestructuradas.txt`](data/notas_de_inventario_desestructuradas.txt)) fueron analizados y consolidados previamente en el repositorio de dominio [`document-inventory.repo.ts`](src/domain/document-inventory.repo.ts).
+- **Representación tipada:** El agente consulta en memoria una representación fuertemente tipada del inventario con métricas desglosadas (físico, disponible, reservado, defectuoso, despachado y en tránsito).
+- **Alcance de sincronización:** Las modificaciones manuales en el archivo `.txt` no actualizan automáticamente los datos del sistema en tiempo de ejecución.
+- **Justificación de diseño:** Este enfoque permite mantener cálculos estrictamente deterministas, respuestas sub-milisegundo y resultados 100% trazables, evitando la variabilidad, sobrecosto de tokens o riesgos de alucinación que un procesamiento dinámico o RAG introduciría en balances contables y compras.
 
 El repositorio incluye el archivo original en [`data/notas_de_inventario_desestructuradas.txt`](data/notas_de_inventario_desestructuradas.txt), consolidando la siguiente tabla auditada:
 
 | Producto | Físico | Disponible | Reservado | Despachado | Defectuoso / En Rep. | Pendiente Recepción | Notas de Trazabilidad / Incertidumbre |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Laptops ThinkPad** | 15 | **15** | 0 | 0 | 3 def. | 0 | 15 manifiesto - 3 devueltas + 5 marketing - 2 robadas = 15 funcionales. |
+| **Laptops ThinkPad** | 15 | **15** | 0 | 0 | 3 def. | 0 | 15 iniciales (-3 trizadas devueltas a TechGlobal + 5 de Marketing - 2 robadas = 15 funcionales). Las 3 defectuosas fueron devueltas al proveedor TechGlobal (no están en reparación). |
 | **Mouses Logitech** | 47 | **47** | 0 | 15 | 0 | 0 | 12 sueltos + 50 palet - 15 enviados a Viña del Mar. |
 | **Monitores Dell 27"** | 18 | **18** | 0 | 0 | 0 | 0 | 8 en Sector B + 10 camión. Los 2 de RRHH fueron liberados por cancelación. |
 | **Teclados KeyClickers** | 15 | **15** | 0 | 0 | 10 def. | 0 | 25 contados - 4 tecla rota - 6 arruinados por gotera = 15 OK. |
@@ -122,8 +133,8 @@ Edita `.env` con tus credenciales:
 # Clave de API de Google AI Studio
 GEMINI_API_KEY=tu_api_key_aqui
 
-# Modelo (recomendado: gemini-2.5-flash)
-GEMINI_MODEL=gemini-2.5-flash
+# Modelo sugerido y estable (admite gemini-3.8-flash)
+GEMINI_MODEL=gemini-3.5-flash-lite
 
 # Fuente de datos inicial: 'mock' (PDF test) o 'unstructured' (inventario auditado)
 INVENTORY_SOURCE=mock
@@ -166,12 +177,14 @@ npm test
 ```bash
 npm run test:unit
 ```
-Valida 33 especificaciones exhaustivas:
+Valida 51 especificaciones exhaustivas (inventario, máquina de estados y suite de resiliencia `withRetry`):
 - Consistencia del mock aleatorio (1-5) por sesión.
 - Trazabilidad y desglose de las 26+ categorías de inventario.
+- Fidelidad documental de laptops ThinkPad (devueltas al proveedor TechGlobal).
 - Máquina de estados: detección de ambigüedad, condiciones, preguntas y cancelaciones.
 - Validación de cantidad exacta y prevención estricta de órdenes duplicadas.
 - Rechazo de herramientas y argumentos alucinados o inválidos.
+- 12 pruebas de resiliencia: reintentos ante 503 y 429 transitorios, fallo inmediato en 400/401/cuota agotada, backoff exponencial y no duplicación de órdenes locales.
 
 ### Ejecutar prueba de integración con Gemini (requiere `GEMINI_API_KEY`):
 ```bash
