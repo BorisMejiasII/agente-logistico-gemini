@@ -1,0 +1,80 @@
+import { ISessionStore, StoredSession } from './session-store.interface.js';
+
+interface InMemorySessionEntry {
+  session: StoredSession;
+  expiresAt: number;
+}
+
+export class InMemorySessionStore implements ISessionStore {
+  public readonly storeType = 'in-memory';
+  private readonly store = new Map<string, InMemorySessionEntry>();
+  private readonly locks = new Map<string, number>();
+
+  constructor(private readonly defaultTtlSeconds: number = 3600) {
+    // Limpieza periódica cada 10 minutos en entornos locales de larga duración
+    if (typeof setInterval !== 'undefined') {
+      const timer = setInterval(() => this.cleanupExpired(), 10 * 60 * 1000);
+      if (typeof timer === 'object' && 'unref' in timer) {
+        timer.unref();
+      }
+    }
+  }
+
+  private cleanupExpired(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.store.entries()) {
+      if (entry.expiresAt <= now) {
+        this.store.delete(id);
+      }
+    }
+    for (const [id, expireTime] of this.locks.entries()) {
+      if (expireTime <= now) {
+        this.locks.delete(id);
+      }
+    }
+  }
+
+  public async getSession(sessionId: string): Promise<StoredSession | null> {
+    const entry = this.store.get(sessionId);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.store.delete(sessionId);
+      return null;
+    }
+    // Clon profundo para aislamiento de memoria
+    return JSON.parse(JSON.stringify(entry.session));
+  }
+
+  public async saveSession(session: StoredSession, ttlSeconds?: number): Promise<void> {
+    const ttl = ttlSeconds ?? this.defaultTtlSeconds;
+    const expiresAt = Date.now() + ttl * 1000;
+    this.store.set(session.sessionId, {
+      session: JSON.parse(JSON.stringify(session)),
+      expiresAt
+    });
+  }
+
+  public async deleteSession(sessionId: string): Promise<void> {
+    this.store.delete(sessionId);
+    this.locks.delete(sessionId);
+  }
+
+  public async acquireLock(sessionId: string, ttlMs: number = 5000): Promise<boolean> {
+    const now = Date.now();
+    const existingLock = this.locks.get(sessionId);
+    if (existingLock && existingLock > now) {
+      return false; // Bloqueo activo por otra solicitud concurrente
+    }
+    this.locks.set(sessionId, now + ttlMs);
+    return true;
+  }
+
+  public async releaseLock(sessionId: string): Promise<void> {
+    this.locks.delete(sessionId);
+  }
+
+  public clearAll(): void {
+    this.store.clear();
+    this.locks.clear();
+  }
+}

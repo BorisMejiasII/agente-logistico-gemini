@@ -69,7 +69,7 @@ export function classifyError(error: unknown): ErrorClassification {
 
   const lowerMsg = message.toLowerCase();
 
-  // Detección estricta de agotamiento de cuotas o créditos
+  // Detección estricta de agotamiento de cuotas o créditos (Gemini y OpenAI)
   const isQuotaExhausted =
     lowerMsg.includes('quota exceeded') ||
     lowerMsg.includes('exceeded your current quota') ||
@@ -77,6 +77,9 @@ export function classifyError(error: unknown): ErrorClassification {
     lowerMsg.includes('daily limit') ||
     lowerMsg.includes('credit balance') ||
     lowerMsg.includes('billing account') ||
+    lowerMsg.includes('no credits remaining') ||
+    code === 'credit_balance_exhausted' ||
+    code === 'insufficient_quota' ||
     (code === 'RESOURCE_EXHAUSTED' && (lowerMsg.includes('quota') || lowerMsg.includes('credit')));
 
   // Reglas de reintentabilidad:

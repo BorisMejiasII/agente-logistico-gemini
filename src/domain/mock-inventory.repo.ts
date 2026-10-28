@@ -10,36 +10,36 @@ export class MockInventoryRepository implements IInventoryRepository {
   private readonly sessionStockCache = new Map<string, number>();
 
   private readonly canonicalCategoryMap: Array<{ key: string; keywords: string[] }> = [
-    { key: 'laptops-thinkpad', keywords: ['laptop', 'thinkpad', 'notebook', 'computador'] },
-    { key: 'mouses-logitech', keywords: ['mouse', 'raton', 'logitech'] },
-    { key: 'monitores-dell-27', keywords: ['monitor', 'dell', 'pantalla'] },
-    { key: 'teclados-keyclickers', keywords: ['teclado', 'keyclickers'] },
-    { key: 'cables-hdmi', keywords: ['hdmi'] },
-    { key: 'sillas-ergonomicas', keywords: ['silla', 'ergonomica', 'mueblescorp'] },
-    { key: 'headsets-jabra', keywords: ['headset', 'jabra', 'auricular', 'audifono'] },
+    { key: 'laptops-thinkpad', keywords: ['laptop', 'thinkpad', 'notebook', 'computador', 'computadora', 'laptops'] },
+    { key: 'mouses-logitech', keywords: ['mouse', 'raton', 'logitech', 'mouses'] },
+    { key: 'monitores-dell-27', keywords: ['monitor', 'dell', 'pantalla', 'monitores', 'pantallas'] },
+    { key: 'teclados-keyclickers', keywords: ['teclado', 'keyclickers', 'teclados'] },
+    { key: 'cables-hdmi', keywords: ['hdmi', 'cable hdmi', 'cables hdmi'] },
+    { key: 'sillas-ergonomicas', keywords: ['silla', 'ergonomica', 'mueblescorp', 'sillas'] },
+    { key: 'headsets-jabra', keywords: ['headset', 'jabra', 'auricular', 'audifono', 'headsets'] },
     { key: 'docking-stations-lenovo', keywords: ['docking', 'lenovo'] },
     { key: 'proyectores-epson', keywords: ['proyector', 'epson'] },
     { key: 'maquina-cafe-nespresso', keywords: ['cafe', 'nespresso', 'cafetera'] },
     { key: 'tinta-epson', keywords: ['tinta', 'cartucho', 'cyan', 'magenta', 'amarillo', 'negro'] },
     { key: 'ssd-kingston', keywords: ['ssd', 'kingston', 'disco'] },
     { key: 'adaptadores-usbc-hdmi', keywords: ['adaptador', 'usb-c', 'usbc'] },
-    { key: 'standing-desks', keywords: ['standing desk', 'escritorio'] },
-    { key: 'iphone-15', keywords: ['iphone'] },
-    { key: 'samsung-galaxy-s24', keywords: ['galaxy', 'samsung'] },
-    { key: 'poleras-corporativas', keywords: ['polera', 'remera'] },
-    { key: 'tazas-termicas', keywords: ['taza'] },
-    { key: 'cuadernos-institucionales', keywords: ['cuaderno'] },
-    { key: 'mochilas-corporativas', keywords: ['mochila'] },
-    { key: 'webcams-logitech', keywords: ['webcam', 'camara'] },
-    { key: 'licencias-windows-server', keywords: ['windows server'] },
-    { key: 'licencias-office', keywords: ['office'] },
-    { key: 'cable-red-cat6', keywords: ['cat6', 'cable de red'] },
-    { key: 'conectores-rj45', keywords: ['rj45', 'conector'] },
-    { key: 'switch-cisco', keywords: ['switch cisco', 'cisco'] },
-    { key: 'switch-ubiquiti', keywords: ['switch ubiquiti', 'ubiquiti'] },
-    { key: 'servidor-dell', keywords: ['servidor dell', 'r740'] },
-    { key: 'servidor-hp', keywords: ['servidor hp', 'proliant'] },
-    { key: 'router-mikrotik', keywords: ['router', 'mikrotik'] }
+    { key: 'standing-desks', keywords: ['standing desk', 'escritorio', 'escritorios'] },
+    { key: 'iphone-15', keywords: ['iphone', 'iphone 15'] },
+    { key: 'samsung-galaxy-s24', keywords: ['galaxy', 'samsung', 'galaxy s24'] },
+    { key: 'poleras-corporativas', keywords: ['polera', 'remera', 'poleras'] },
+    { key: 'tazas-termicas', keywords: ['taza', 'tazas'] },
+    { key: 'cuadernos-institucionales', keywords: ['cuaderno', 'cuadernos'] },
+    { key: 'mochilas-corporativas', keywords: ['mochila', 'mochilas'] },
+    { key: 'webcams-logitech', keywords: ['webcam', 'camara', 'webcams'] },
+    { key: 'licencias-windows-server', keywords: ['windows server', 'licencia de windows', 'licencias de windows', 'licencia windows', 'licencias windows', 'licencia de windows server', 'licencias windows server', 'windows server 2022'] },
+    { key: 'licencias-office', keywords: ['office', 'licencia office', 'licencias office', 'licencia de office', 'office 2021'] },
+    { key: 'cable-red-cat6', keywords: ['cat6', 'cable de red', 'cables de red'] },
+    { key: 'conectores-rj45', keywords: ['rj45', 'conector', 'conectores'] },
+    { key: 'switch-cisco', keywords: ['switch cisco', 'cisco 48p', 'switch cisco 48p'] },
+    { key: 'switch-ubiquiti', keywords: ['switch ubiquiti', 'ubiquiti 24p', 'switch ubiquiti 24p'] },
+    { key: 'servidor-dell', keywords: ['servidor dell', 'dell r740', 'servidor dell r740', 'r740'] },
+    { key: 'servidor-hp', keywords: ['servidor hp', 'hp proliant', 'servidor hp proliant', 'proliant'] },
+    { key: 'router-mikrotik', keywords: ['router', 'mikrotik', 'router mikrotik'] }
   ];
 
   public normalizeProductName(producto: string): string {
@@ -101,6 +101,22 @@ export class MockInventoryRepository implements IInventoryRepository {
   public setMockStock(producto: string, stock: number): void {
     const canonicalKey = this.getCanonicalProductKey(producto) ?? this.normalizeProductName(producto);
     this.sessionStockCache.set(canonicalKey, stock);
+  }
+
+  /*
+   Obtiene el mapa de stocks fijados en la sesión para persistencia externa
+   */
+  public getStockMap(): Record<string, number> {
+    return Object.fromEntries(this.sessionStockCache.entries());
+  }
+
+  /*
+   Restaura el mapa de stocks fijados en la sesión desde persistencia externa
+   */
+  public loadStockMap(stocks: Record<string, number>): void {
+    for (const [key, val] of Object.entries(stocks)) {
+      this.sessionStockCache.set(key, val);
+    }
   }
 
   /*

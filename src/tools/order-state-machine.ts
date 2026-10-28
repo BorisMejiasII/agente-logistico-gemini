@@ -371,4 +371,23 @@ export class OrderStateMachine {
     this.lastAnalysis = null;
     this.lastProcessedMessage = '';
   }
+
+  /**
+   * Restaura el estado de la máquina desde un objeto persistido (ej. Redis / Serverless Session)
+   */
+  public restoreState(
+    pendingOrder: PendingOrder | null,
+    lastAnalysis?: UserConfirmationAnalysis | null,
+    lastProcessedMessage?: string
+  ): void {
+    this.pendingOrder = pendingOrder
+      ? {
+          ...pendingOrder,
+          createdAt: new Date(pendingOrder.createdAt),
+          updatedAt: new Date(pendingOrder.updatedAt)
+        }
+      : null;
+    this.lastAnalysis = lastAnalysis ?? null;
+    this.lastProcessedMessage = lastProcessedMessage ?? '';
+  }
 }

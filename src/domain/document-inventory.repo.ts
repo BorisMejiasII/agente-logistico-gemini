@@ -463,7 +463,9 @@ export class DocumentInventoryRepository implements IInventoryRepository {
       displayName: 'Licencias físicas Windows Server 2022',
       aliases: [
         'windows server', 'windows server 2022', 'licencia windows server',
-        'licencias windows server 2022', 'licencias windows server'
+        'licencias windows server 2022', 'licencias windows server',
+        'licencia de windows', 'licencias de windows', 'licencia windows',
+        'licencias windows', 'licencia de windows server', 'licencias de windows server'
       ],
       physicalStock: 4,
       availableStock: 4,

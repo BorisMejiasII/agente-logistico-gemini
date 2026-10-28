@@ -7,10 +7,15 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run --fileParallelism=false",
     "test:watch": "vitest",
-    "test:unit": "vitest run tests/inventory-and-state.test.ts tests/retry-and-resilience.test.ts",
-    "test:integration": "vitest run tests/gemini-integration.test.ts"
+    "test:unit": "vitest run tests/inventory-and-state.test.ts tests/retry-and-resilience.test.ts tests/conversation-defects-regression.test.ts",
+    "test:integration": "vitest run tests/gemini-integration.test.ts",
+    "test:openai": "vitest run tests/openai-integration.test.ts",
+    "test:web": "vitest run tests/web-multi-provider.test.ts",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:start": "npm --prefix web run start"
   },
   "keywords": [
     "gemini",
@@ -25,7 +30,9 @@
   "private": true,
   "dependencies": {
     "@google/genai": "^2.31.0",
-    "dotenv": "^16.4.7"
+    "@upstash/redis": "^1.40.0",
+    "dotenv": "^16.4.7",
+    "openai": "^7.45.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",

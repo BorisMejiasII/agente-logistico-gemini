@@ -1,6 +1,44 @@
-import { IInventoryRepository, ProductNotFoundError } from '../domain/inventory.repository.js';
+import { IInventoryRepository, ProductNotFoundError, normalizeProductString } from '../domain/inventory.repository.js';
 import { OrderStateMachine, OrderValidationError } from './order-state-machine.js';
 import { StockQueryResult } from '../domain/inventory.types.js';
+
+const META_CATALOG_KEYWORDS = [
+  'catalogo',
+  'catalogos',
+  'el catalogo',
+  'catalogo general',
+  'catalogo completo',
+  'todo el catalogo',
+  'todos los productos',
+  'todos los productos del inventario',
+  'inventario',
+  'el inventario',
+  'inventario general',
+  'inventario completo',
+  'todo el inventario',
+  'productos disponibles',
+  'lista de productos',
+  'listado de productos',
+  'todos'
+];
+
+function isCatalogOrMetaQuery(str: string): boolean {
+  const norm = normalizeProductString(str);
+  return META_CATALOG_KEYWORDS.some(k => norm === k || norm === normalizeProductString(k));
+}
+
+const AMBIGUOUS_CATEGORIES: Record<string, string[]> = {
+  'servidor': ['Servidor Dell R740', 'Servidor HP ProLiant'],
+  'servidores': ['Servidor Dell R740', 'Servidor HP ProLiant'],
+  'switch': ['Switch Cisco 48p', 'Switch Ubiquiti 24p'],
+  'switches': ['Switch Cisco 48p', 'Switch Ubiquiti 24p'],
+  'telefono': ['iPhone 15', 'Samsung Galaxy S24'],
+  'telefonos': ['iPhone 15', 'Samsung Galaxy S24'],
+  'celular': ['iPhone 15', 'Samsung Galaxy S24'],
+  'celulares': ['iPhone 15', 'Samsung Galaxy S24'],
+  'licencia': ['Licencias físicas Windows Server 2022', 'Licencias físicas Office 2021'],
+  'licencias': ['Licencias físicas Windows Server 2022', 'Licencias físicas Office 2021']
+};
 
 export interface ToolExecutionResult {
   toolName: string;
@@ -96,7 +134,40 @@ export class InventoryToolsExecutor {
           };
         }
 
-        const { stock, queryResult } = await this.consultar_stock(producto.trim());
+        const trimmed = producto.trim();
+
+        // 1. Detección determinista de consultas generales de catálogo (no representan productos individuales)
+        if (isCatalogOrMetaQuery(trimmed)) {
+          return {
+            toolName: callName,
+            success: false,
+            rawOutput: null,
+            payload: {
+              error: `No existe un producto denominado '${trimmed}'. La herramienta 'consultar_stock' debe invocarse para productos físicos específicos, no para consultas generales de catálogo.`,
+              errorCode: 'CATALOG_QUERY_NOT_A_PRODUCT',
+              instruccionParaAgente: `Explica al usuario que no existe una función para listar todo el inventario de una sola vez, pero que puedes consultar productos específicos si te indica cuál necesita (por ejemplo: Laptops ThinkPad, Monitores Dell 27", Mouses Logitech, Teclados mecánicos, Servidores Dell R740 o HP ProLiant, Licencias Windows Server 2022 u Office 2021).`
+            }
+          };
+        }
+
+        // 2. Detección determinista de categorías ambiguas con múltiples modelos en bodega
+        const norm = normalizeProductString(trimmed);
+        if (AMBIGUOUS_CATEGORIES[norm]) {
+          const options = AMBIGUOUS_CATEGORIES[norm];
+          return {
+            toolName: callName,
+            success: false,
+            rawOutput: null,
+            payload: {
+              error: `El término '${trimmed}' es ambiguo porque en bodega existen múltiples modelos: ${options.join(' y ')}.`,
+              errorCode: 'AMBIGUOUS_PRODUCT',
+              opcionesDisponibles: options,
+              instruccionParaAgente: `No asumas un modelo por tu cuenta. Pregunta al usuario cuál modelo específico necesita aclarando: "¿Te refieres a ${options.join(' o a ')}?".`
+            }
+          };
+        }
+
+        const { stock, queryResult } = await this.consultar_stock(trimmed);
 
         return {
           toolName: callName,
