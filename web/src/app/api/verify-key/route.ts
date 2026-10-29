@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MultiProviderOrchestrator } from '../../../../../src/agent/multi-provider-orchestrator.js';
+import { sanitizeErrorMessage } from '../../../../../src/utils/security.utils.js';
+import { verifyKeyRateLimiter, getClientIp } from '../../../../../src/utils/rate-limiter.js';
 
 const orchestrator = new MultiProviderOrchestrator();
 
@@ -10,7 +12,18 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function POST(req: NextRequest) {
+  let userApiKey = '';
   try {
+    // 1. Rate Limiting por IP para prevenir fuerza bruta o abuso de cuota en validación
+    const clientIp = getClientIp(req.headers);
+    const rateCheck = verifyKeyRateLimiter.check(clientIp);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes de verificación de API Key. Por favor espera antes de intentar nuevamente.' },
+        { status: 429, headers: { ...NO_CACHE_HEADERS, 'Retry-After': String(rateCheck.resetSeconds) } }
+      );
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json(
@@ -20,6 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { provider, apiKey, modelOverride } = body;
+    if (typeof apiKey === 'string') userApiKey = apiKey;
 
     if (provider !== 'gemini' && provider !== 'openai') {
       return NextResponse.json(
@@ -46,16 +60,19 @@ export async function POST(req: NextRequest) {
     const targetProvider = orchestrator.getProvider(provider);
     const result = await targetProvider.verifyApiKey(apiKey.trim(), modelOverride);
 
+    // Sanitizar cualquier mensaje retornado para prevenir reflejo de la clave
+    const sanitizedMsg = sanitizeErrorMessage(result.message, userApiKey);
+
     return NextResponse.json(
       {
         valid: result.valid,
-        message: result.message,
+        message: sanitizedMsg,
         model: result.model
       },
       { status: result.valid ? 200 : 400, headers: NO_CACHE_HEADERS }
     );
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Error interno al verificar credenciales';
+    const errorMsg = sanitizeErrorMessage(err, userApiKey);
     return NextResponse.json(
       { error: errorMsg },
       { status: 500, headers: NO_CACHE_HEADERS }

@@ -5,6 +5,8 @@ import {
   SessionUnauthorizedError,
   SessionLockedError
 } from '../../../../../src/agent/multi-provider-orchestrator.js';
+import { sanitizeErrorMessage, isValidUUID, isValidSessionSecret } from '../../../../../src/utils/security.utils.js';
+import { chatRateLimiter, getClientIp } from '../../../../../src/utils/rate-limiter.js';
 
 const orchestrator = new MultiProviderOrchestrator();
 
@@ -15,7 +17,24 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function POST(req: NextRequest) {
+  let userApiKey = '';
   try {
+    // 1. Control de frecuencia (Rate Limiting) por IP
+    const clientIp = getClientIp(req.headers);
+    const rateCheck = chatRateLimiter.check(clientIp);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Por favor espera un momento antes de enviar otro mensaje.' },
+        {
+          status: 429,
+          headers: {
+            ...NO_CACHE_HEADERS,
+            'Retry-After': String(rateCheck.resetSeconds)
+          }
+        }
+      );
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json(
@@ -27,6 +46,7 @@ export async function POST(req: NextRequest) {
     const sessionId = body.sessionId || req.headers.get('x-session-id');
     const sessionSecret = body.sessionSecret || req.headers.get('x-session-secret');
     const { message, apiKey, clientMessageId, modelOverride } = body;
+    if (typeof apiKey === 'string') userApiKey = apiKey;
 
     if (!sessionId || typeof sessionId !== 'string') {
       return NextResponse.json(
@@ -35,9 +55,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!isValidUUID(sessionId)) {
+      return NextResponse.json(
+        { error: 'El identificador de sesión tiene un formato inválido.' },
+        { status: 400, headers: NO_CACHE_HEADERS }
+      );
+    }
+
     if (!sessionSecret || typeof sessionSecret !== 'string') {
       return NextResponse.json(
         { error: 'El secreto de sesión es requerido para autorizar la solicitud.' },
+        { status: 401, headers: NO_CACHE_HEADERS }
+      );
+    }
+
+    if (!isValidSessionSecret(sessionSecret)) {
+      return NextResponse.json(
+        { error: 'El secreto de sesión tiene un formato o longitud inválida.' },
         { status: 401, headers: NO_CACHE_HEADERS }
       );
     }
@@ -91,7 +125,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_CACHE_HEADERS });
     }
 
-    const errorMsg = err instanceof Error ? err.message : 'Error inesperado al procesar la solicitud.';
-    return NextResponse.json({ error: errorMsg }, { status: 500, headers: NO_CACHE_HEADERS });
+    // Sanitización exhaustiva para garantizar que ninguna API Key ni ruta interna se filtre
+    const sanitized = sanitizeErrorMessage(err, userApiKey);
+    return NextResponse.json({ error: sanitized }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }

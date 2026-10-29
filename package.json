@@ -9,7 +9,7 @@
     "build": "tsc",
     "test": "vitest run --fileParallelism=false",
     "test:watch": "vitest",
-    "test:unit": "vitest run tests/inventory-and-state.test.ts tests/retry-and-resilience.test.ts tests/conversation-defects-regression.test.ts",
+    "test:unit": "vitest run tests/inventory-and-state.test.ts tests/retry-and-resilience.test.ts tests/conversation-defects-regression.test.ts tests/security-audit.test.ts",
     "test:integration": "vitest run tests/gemini-integration.test.ts",
     "test:openai": "vitest run tests/openai-integration.test.ts",
     "test:web": "vitest run tests/web-multi-provider.test.ts",

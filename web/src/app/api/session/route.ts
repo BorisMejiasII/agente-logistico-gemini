@@ -4,6 +4,8 @@ import {
   SessionNotFoundError,
   SessionUnauthorizedError
 } from '../../../../../src/agent/multi-provider-orchestrator.js';
+import { sanitizeErrorMessage, isValidUUID, isValidSessionSecret } from '../../../../../src/utils/security.utils.js';
+import { sessionRateLimiter, getClientIp } from '../../../../../src/utils/rate-limiter.js';
 
 const orchestrator = new MultiProviderOrchestrator();
 
@@ -15,6 +17,16 @@ const NO_CACHE_HEADERS = {
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Rate Limiting por IP para prevención de abuso en creación/consulta de sesiones
+    const clientIp = getClientIp(req.headers);
+    const rateCheck = sessionRateLimiter.check(clientIp);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes de sesión. Por favor espera unos momentos.' },
+        { status: 429, headers: { ...NO_CACHE_HEADERS, 'Retry-After': String(rateCheck.resetSeconds) } }
+      );
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json(
@@ -55,6 +67,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!isValidUUID(sessionId)) {
+      return NextResponse.json(
+        { error: 'Formato de sessionId inválido.' },
+        { status: 400, headers: NO_CACHE_HEADERS }
+      );
+    }
+
+    if (!isValidSessionSecret(sessionSecret)) {
+      return NextResponse.json(
+        { error: 'Formato de sessionSecret inválido.' },
+        { status: 401, headers: NO_CACHE_HEADERS }
+      );
+    }
+
     if (action === 'get') {
       const session = await orchestrator.getAndValidateSession(sessionId, sessionSecret);
       return NextResponse.json(
@@ -72,9 +98,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'update' || action === 'reset') {
+      const targetProvider: 'gemini' | 'openai' | undefined =
+        body.provider === 'openai' ? 'openai' : body.provider === 'gemini' ? 'gemini' : undefined;
+      const targetMode: 'mock' | 'unstructured' | undefined =
+        body.inventoryMode === 'unstructured' ? 'unstructured' : body.inventoryMode === 'mock' ? 'mock' : undefined;
+
       const updates = {
-        provider: body.provider,
-        inventoryMode: body.inventoryMode,
+        provider: targetProvider,
+        inventoryMode: targetMode,
         resetConversation: action === 'reset' || Boolean(body.resetConversation)
       };
 
@@ -103,7 +134,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof SessionUnauthorizedError) {
       return NextResponse.json({ error: err.message }, { status: 403, headers: NO_CACHE_HEADERS });
     }
-    const message = err instanceof Error ? err.message : 'Error en la gestión de sesión.';
-    return NextResponse.json({ error: message }, { status: 500, headers: NO_CACHE_HEADERS });
+    const sanitized = sanitizeErrorMessage(err);
+    return NextResponse.json({ error: sanitized }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }

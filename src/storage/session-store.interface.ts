@@ -21,6 +21,6 @@ export interface ISessionStore {
   getSession(sessionId: string): Promise<StoredSession | null>;
   saveSession(session: StoredSession, ttlSeconds?: number): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
-  acquireLock(sessionId: string, ttlMs?: number): Promise<boolean>;
-  releaseLock(sessionId: string): Promise<void>;
+  acquireLock(sessionId: string, ttlMs?: number, lockOwner?: string): Promise<boolean>;
+  releaseLock(sessionId: string, lockOwner?: string): Promise<void>;
 }

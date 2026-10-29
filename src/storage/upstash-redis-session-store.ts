@@ -50,16 +50,36 @@ export class UpstashRedisSessionStore implements ISessionStore {
     await this.redis.del(this.lockKey(sessionId));
   }
 
-  public async acquireLock(sessionId: string, ttlMs: number = 5000): Promise<boolean> {
-    // Atomic NX PX lock
-    const res = await this.redis.set(this.lockKey(sessionId), '1', {
+  public async acquireLock(sessionId: string, ttlMs: number = 5000, lockOwner: string = '1'): Promise<boolean> {
+    // Bloqueo atómico SET NX PX con identificación de propietario
+    const res = await this.redis.set(this.lockKey(sessionId), lockOwner, {
       nx: true,
       px: ttlMs
     });
     return res === 'OK';
   }
 
-  public async releaseLock(sessionId: string): Promise<void> {
-    await this.redis.del(this.lockKey(sessionId));
+  public async releaseLock(sessionId: string, lockOwner?: string): Promise<void> {
+    if (!lockOwner) {
+      await this.redis.del(this.lockKey(sessionId));
+      return;
+    }
+    // Liberación atómica condicionada al propietario legítimo (mitiga Escenario 5)
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    try {
+      await this.redis.eval(script, [this.lockKey(sessionId)], [lockOwner]);
+    } catch {
+      // Fallback si eval no está disponible en la versión del mock
+      const current = await this.redis.get<string>(this.lockKey(sessionId));
+      if (current === lockOwner) {
+        await this.redis.del(this.lockKey(sessionId));
+      }
+    }
   }
 }

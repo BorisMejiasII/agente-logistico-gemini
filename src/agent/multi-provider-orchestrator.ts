@@ -10,6 +10,7 @@ import { OrderStateMachine } from '../tools/order-state-machine.js';
 import { InventoryToolsExecutor } from '../tools/inventory.tools.js';
 import { PendingOrder } from '../domain/inventory.types.js';
 import { classifyError } from '../utils/retry.js';
+import { timingSafeCompare, isValidUUID, isValidSessionSecret } from '../utils/security.utils.js';
 
 export class SessionNotFoundError extends Error {
   constructor(sessionId: string) {
@@ -53,14 +54,23 @@ export interface OrchestratorMessageOutput {
 export class MultiProviderOrchestrator {
   private readonly geminiProvider: GeminiProvider;
   private readonly openAIProvider: OpenAIProvider;
+  private _sessionStore?: ISessionStore;
 
   constructor(
-    private readonly sessionStore: ISessionStore = getSessionStore(),
+    sessionStore?: ISessionStore,
     geminiModel: string = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     openAIModel: string = process.env.OPENAI_MODEL || 'gpt-4o-mini'
   ) {
+    this._sessionStore = sessionStore;
     this.geminiProvider = new GeminiProvider(geminiModel);
     this.openAIProvider = new OpenAIProvider(openAIModel);
+  }
+
+  public get sessionStore(): ISessionStore {
+    if (!this._sessionStore) {
+      this._sessionStore = getSessionStore();
+    }
+    return this._sessionStore;
   }
 
   public getProvider(id: LLMProviderId) {
@@ -104,11 +114,19 @@ export class MultiProviderOrchestrator {
     sessionId: string,
     sessionSecret: string
   ): Promise<StoredSession> {
+    if (!isValidUUID(sessionId)) {
+      throw new SessionNotFoundError(sessionId);
+    }
+    if (!isValidSessionSecret(sessionSecret)) {
+      throw new SessionUnauthorizedError();
+    }
+
     const session = await this.sessionStore.getSession(sessionId);
     if (!session) {
       throw new SessionNotFoundError(sessionId);
     }
-    if (session.sessionSecret !== sessionSecret) {
+    // Mitigación de Timing Attacks: Comparación en tiempo constante con crypto.timingSafeEqual
+    if (!timingSafeCompare(session.sessionSecret, sessionSecret)) {
       throw new SessionUnauthorizedError();
     }
     return session;
@@ -181,8 +199,9 @@ export class MultiProviderOrchestrator {
       throw new Error('La API Key del proveedor es requerida.');
     }
 
-    // 1. Control de concurrencia mediante bloqueo atómico de sesión
-    const lockAcquired = await this.sessionStore.acquireLock(sessionId, 12000);
+    // 1. Control de concurrencia mediante bloqueo atómico de sesión con identificador de propietario
+    const lockOwner = crypto.randomUUID();
+    const lockAcquired = await this.sessionStore.acquireLock(sessionId, 15000, lockOwner);
     if (!lockAcquired) {
       throw new SessionLockedError();
     }
@@ -304,7 +323,7 @@ export class MultiProviderOrchestrator {
 
       return output;
     } finally {
-      await this.sessionStore.releaseLock(sessionId);
+      await this.sessionStore.releaseLock(sessionId, lockOwner);
     }
   }
 }

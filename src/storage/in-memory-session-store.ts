@@ -8,7 +8,7 @@ interface InMemorySessionEntry {
 export class InMemorySessionStore implements ISessionStore {
   public readonly storeType = 'in-memory';
   private readonly store = new Map<string, InMemorySessionEntry>();
-  private readonly locks = new Map<string, number>();
+  private readonly locks = new Map<string, { expiresAt: number; owner: string }>();
 
   constructor(private readonly defaultTtlSeconds: number = 3600) {
     // Limpieza periódica cada 10 minutos en entornos locales de larga duración
@@ -27,8 +27,8 @@ export class InMemorySessionStore implements ISessionStore {
         this.store.delete(id);
       }
     }
-    for (const [id, expireTime] of this.locks.entries()) {
-      if (expireTime <= now) {
+    for (const [id, lock] of this.locks.entries()) {
+      if (lock.expiresAt <= now) {
         this.locks.delete(id);
       }
     }
@@ -59,18 +59,26 @@ export class InMemorySessionStore implements ISessionStore {
     this.locks.delete(sessionId);
   }
 
-  public async acquireLock(sessionId: string, ttlMs: number = 5000): Promise<boolean> {
+  public async acquireLock(sessionId: string, ttlMs: number = 5000, lockOwner: string = '1'): Promise<boolean> {
     const now = Date.now();
     const existingLock = this.locks.get(sessionId);
-    if (existingLock && existingLock > now) {
+    if (existingLock && existingLock.expiresAt > now) {
       return false; // Bloqueo activo por otra solicitud concurrente
     }
-    this.locks.set(sessionId, now + ttlMs);
+    this.locks.set(sessionId, { expiresAt: now + ttlMs, owner: lockOwner });
     return true;
   }
 
-  public async releaseLock(sessionId: string): Promise<void> {
-    this.locks.delete(sessionId);
+  public async releaseLock(sessionId: string, lockOwner?: string): Promise<void> {
+    if (!lockOwner) {
+      this.locks.delete(sessionId);
+      return;
+    }
+    const current = this.locks.get(sessionId);
+    // Escenario 5: Solo el propietario legítimo del bloqueo puede liberarlo
+    if (current && current.owner === lockOwner) {
+      this.locks.delete(sessionId);
+    }
   }
 
   public clearAll(): void {
