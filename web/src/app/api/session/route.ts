@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   MultiProviderOrchestrator,
   SessionNotFoundError,
-  SessionUnauthorizedError
+  SessionUnauthorizedError,
+  SessionConcurrencyError
 } from '../../../../../src/agent/multi-provider-orchestrator.js';
 import { sanitizeErrorMessage, isValidUUID, isValidSessionSecret } from '../../../../../src/utils/security.utils.js';
 import { sessionRateLimiter, getClientIp } from '../../../../../src/utils/rate-limiter.js';
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Rate Limiting por IP para prevención de abuso en creación/consulta de sesiones
     const clientIp = getClientIp(req.headers);
-    const rateCheck = sessionRateLimiter.check(clientIp);
+    const rateCheck = await sessionRateLimiter.check(clientIp);
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: 'Demasiadas solicitudes de sesión. Por favor espera unos momentos.' },
@@ -133,6 +134,9 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof SessionUnauthorizedError) {
       return NextResponse.json({ error: err.message }, { status: 403, headers: NO_CACHE_HEADERS });
+    }
+    if (err instanceof SessionConcurrencyError) {
+      return NextResponse.json({ error: err.message }, { status: 409, headers: NO_CACHE_HEADERS });
     }
     const sanitized = sanitizeErrorMessage(err);
     return NextResponse.json({ error: sanitized }, { status: 500, headers: NO_CACHE_HEADERS });

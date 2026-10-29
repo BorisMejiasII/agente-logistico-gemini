@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { LLMProviderId, StoredChatMessage, ProviderToolExecution } from '../providers/provider.interface.js';
 import { GeminiProvider } from '../providers/gemini.provider.js';
 import { OpenAIProvider } from '../providers/openai.provider.js';
-import { ISessionStore, StoredSession } from '../storage/session-store.interface.js';
+import { ISessionStore, StoredSession, SessionConcurrencyError } from '../storage/session-store.interface.js';
 import { getSessionStore } from '../storage/session-store.factory.js';
 import { MockInventoryRepository } from '../domain/mock-inventory.repo.js';
 import { DocumentInventoryRepository } from '../domain/document-inventory.repo.js';
@@ -32,6 +32,8 @@ export class SessionLockedError extends Error {
     this.name = 'SessionLockedError';
   }
 }
+
+export { SessionConcurrencyError } from '../storage/session-store.interface.js';
 
 export interface OrchestratorMessageInput {
   sessionId: string;
@@ -100,6 +102,7 @@ export class MultiProviderOrchestrator {
       history: [],
       createdAt: now,
       updatedAt: now,
+      version: 1,
       idempotencyRecords: {}
     };
 
@@ -180,7 +183,8 @@ export class MultiProviderOrchestrator {
 
     if (changed) {
       session.updatedAt = new Date().toISOString();
-      await this.sessionStore.saveSession(session);
+      const currentVersion = session.version ?? 1;
+      await this.sessionStore.saveSession(session, currentVersion);
     }
 
     return session;
@@ -206,12 +210,35 @@ export class MultiProviderOrchestrator {
       throw new SessionLockedError();
     }
 
+    // Heartbeat: Renueva periódicamente el bloqueo mientras la solicitud esté viva y procesándose
+    const heartbeatTimer = setInterval(async () => {
+      try {
+        await this.sessionStore.extendLock(sessionId, 15000, lockOwner);
+      } catch {
+        // En caso de fallo transitorio, la ejecución continúa y el CAS protegerá el commit final
+      }
+    }, 5000);
+    if (typeof heartbeatTimer === 'object' && 'unref' in heartbeatTimer) {
+      heartbeatTimer.unref();
+    }
+
     try {
       const session = await this.getAndValidateSession(sessionId, sessionSecret);
+      const initialVersion = session.version ?? 1;
 
-      // 2. Control de idempotencia
+      // 2. Control de idempotencia con huella digital criptográfica (SHA-256)
+      const normalizedMsg = userMessage.trim();
+      const messageHash = crypto.createHash('sha256').update(normalizedMsg).digest('hex');
+
       if (clientMessageId && session.idempotencyRecords?.[clientMessageId]) {
-        const cached = session.idempotencyRecords[clientMessageId].response as OrchestratorMessageOutput;
+        const record = session.idempotencyRecords[clientMessageId];
+        // Si el clientMessageId se reutiliza con un contenido diferente, rechazar deterministamente
+        if (record.messageHash && record.messageHash !== messageHash) {
+          throw new Error(
+            `Conflicto de idempotencia: el identificador clientMessageId '${clientMessageId}' fue utilizado previamente con un mensaje diferente.`
+          );
+        }
+        const cached = record.response as OrchestratorMessageOutput;
         return cached;
       }
 
@@ -309,20 +336,22 @@ export class MultiProviderOrchestrator {
         inventoryMode: session.inventoryMode
       };
 
-      // 10. Registrar clave de idempotencia
+      // 10. Registrar clave de idempotencia con huella criptográfica
       if (clientMessageId) {
         session.idempotencyRecords = session.idempotencyRecords || {};
         session.idempotencyRecords[clientMessageId] = {
           response: output,
+          messageHash,
           timestamp: Date.now()
         };
       }
 
       session.updatedAt = new Date().toISOString();
-      await this.sessionStore.saveSession(session);
+      await this.sessionStore.saveSession(session, initialVersion);
 
       return output;
     } finally {
+      clearInterval(heartbeatTimer);
       await this.sessionStore.releaseLock(sessionId, lockOwner);
     }
   }

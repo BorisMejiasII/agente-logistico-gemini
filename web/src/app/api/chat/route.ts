@@ -3,7 +3,8 @@ import {
   MultiProviderOrchestrator,
   SessionNotFoundError,
   SessionUnauthorizedError,
-  SessionLockedError
+  SessionLockedError,
+  SessionConcurrencyError
 } from '../../../../../src/agent/multi-provider-orchestrator.js';
 import { sanitizeErrorMessage, isValidUUID, isValidSessionSecret } from '../../../../../src/utils/security.utils.js';
 import { chatRateLimiter, getClientIp } from '../../../../../src/utils/rate-limiter.js';
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Control de frecuencia (Rate Limiting) por IP
     const clientIp = getClientIp(req.headers);
-    const rateCheck = chatRateLimiter.check(clientIp);
+    const rateCheck = await chatRateLimiter.check(clientIp);
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: 'Demasiadas solicitudes. Por favor espera un momento antes de enviar otro mensaje.' },
@@ -122,6 +123,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: 403, headers: NO_CACHE_HEADERS });
     }
     if (err instanceof SessionLockedError) {
+      return NextResponse.json({ error: err.message }, { status: 409, headers: NO_CACHE_HEADERS });
+    }
+    if (err instanceof SessionConcurrencyError) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_CACHE_HEADERS });
     }
 

@@ -1,4 +1,4 @@
-import { ISessionStore, StoredSession } from './session-store.interface.js';
+import { ISessionStore, StoredSession, SessionConcurrencyError } from './session-store.interface.js';
 
 interface InMemorySessionEntry {
   session: StoredSession;
@@ -45,7 +45,20 @@ export class InMemorySessionStore implements ISessionStore {
     return JSON.parse(JSON.stringify(entry.session));
   }
 
-  public async saveSession(session: StoredSession, ttlSeconds?: number): Promise<void> {
+  public async saveSession(session: StoredSession, expectedVersion?: number, ttlSeconds?: number): Promise<void> {
+    const current = this.store.get(session.sessionId);
+    if (expectedVersion !== undefined && current) {
+      const currentVersion = current.session.version ?? 1;
+      if (currentVersion !== expectedVersion) {
+        throw new SessionConcurrencyError(
+          `Conflicto de concurrencia en sesión '${session.sessionId}': versión esperada ${expectedVersion}, pero la sesión fue modificada a versión ${currentVersion}.`
+        );
+      }
+    }
+
+    const nextVersion = current ? ((current.session.version ?? 0) + 1) : (session.version ?? 1);
+    session.version = nextVersion;
+
     const ttl = ttlSeconds ?? this.defaultTtlSeconds;
     const expiresAt = Date.now() + ttl * 1000;
     this.store.set(session.sessionId, {
@@ -66,6 +79,16 @@ export class InMemorySessionStore implements ISessionStore {
       return false; // Bloqueo activo por otra solicitud concurrente
     }
     this.locks.set(sessionId, { expiresAt: now + ttlMs, owner: lockOwner });
+    return true;
+  }
+
+  public async extendLock(sessionId: string, ttlMs: number = 15000, lockOwner: string = '1'): Promise<boolean> {
+    const now = Date.now();
+    const current = this.locks.get(sessionId);
+    if (!current || current.owner !== lockOwner || current.expiresAt <= now) {
+      return false;
+    }
+    current.expiresAt = now + ttlMs;
     return true;
   }
 

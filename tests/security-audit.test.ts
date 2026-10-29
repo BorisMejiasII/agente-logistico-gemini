@@ -6,7 +6,7 @@ import { OrderStateMachine, OrderValidationError } from '../src/tools/order-stat
 import { InventoryToolsExecutor } from '../src/tools/inventory.tools.js';
 import { MockInventoryRepository } from '../src/domain/mock-inventory.repo.js';
 import { sanitizeErrorMessage, timingSafeCompare, isValidUUID, isValidSessionSecret } from '../src/utils/security.utils.js';
-import { SimpleRateLimiter } from '../src/utils/rate-limiter.js';
+import { SimpleRateLimiter, DistributedRateLimiter } from '../src/utils/rate-limiter.js';
 import { getSessionStore, resetSessionStoreForTesting } from '../src/storage/session-store.factory.js';
 
 describe('Auditoría Integral de Seguridad — Agente Logístico Multiproveedor', () => {
@@ -70,6 +70,32 @@ describe('Auditoría Integral de Seguridad — Agente Logístico Multiproveedor'
       const serialized = JSON.stringify(stored);
       expect(serialized).not.toContain(dummyGeminiKey);
       expect(serialized).not.toContain(dummyOpenAIKey);
+    });
+
+    it('Prueba obligatoria BYOK: credenciales ficticias con marcadores identificables nunca se filtran en errores, persistencia ni respuestas', async () => {
+      const identifiableMarkerKey = 'AIzaSy_IDENTIFIABLE_MARKER_TEST_SECRET_998877665544';
+      const session = await orchestrator.createSession({ provider: 'gemini', inventoryMode: 'mock' });
+
+      // 1. Simulación de mensaje de error que contiene el marcador en texto
+      const rawTextError = `API error using key ${identifiableMarkerKey}: quota exceeded`;
+      const sanitizedTextError = sanitizeErrorMessage(rawTextError, identifiableMarkerKey);
+
+      expect(sanitizedTextError).not.toContain(identifiableMarkerKey);
+      expect(sanitizedTextError).not.toContain('IDENTIFIABLE_MARKER');
+      expect(sanitizedTextError).toContain('[REDACTED_API_KEY]');
+
+      // 2. Simulación de error en URL con query params
+      const rawUrlError = `Request failed at https://generativelanguage.googleapis.com/v1beta?key=${identifiableMarkerKey}`;
+      const sanitizedUrlError = sanitizeErrorMessage(rawUrlError, identifiableMarkerKey);
+      expect(sanitizedUrlError).not.toContain(identifiableMarkerKey);
+      expect(sanitizedUrlError).not.toContain('IDENTIFIABLE_MARKER');
+      expect(sanitizedUrlError).toContain('[PARAMS_REDACTED]');
+
+      // 3. Comprobar que en la sesión persistida el marcador jamás se almacena
+      const stored = await sessionStore.getSession(session.sessionId);
+      const serialized = JSON.stringify(stored);
+      expect(serialized).not.toContain(identifiableMarkerKey);
+      expect(serialized).not.toContain('IDENTIFIABLE_MARKER');
     });
   });
 
@@ -382,6 +408,19 @@ describe('Auditoría Integral de Seguridad — Agente Logístico Multiproveedor'
       delete process.env.NEXT_PHASE;
 
       expect(() => getSessionStore()).toThrowError(/SEGURIDAD CRÍTICA SERVERLESS/);
+    });
+
+    it('En entorno de producción, DistributedRateLimiter prohíbe fallback a memoria si Redis no está disponible (fail-secure)', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.VERCEL;
+      delete process.env.UPSTASH_REDIS_REST_URL;
+      delete process.env.UPSTASH_REDIS_REST_TOKEN;
+      delete process.env.NEXT_PHASE;
+
+      const fallback = new SimpleRateLimiter(60000, 10);
+      const prodLimiter = new DistributedRateLimiter('chat', 60, 10, fallback);
+
+      await expect(prodLimiter.check('192.168.1.100')).rejects.toThrowError(/SEGURIDAD CRÍTICA SERVERLESS/);
     });
   });
 });

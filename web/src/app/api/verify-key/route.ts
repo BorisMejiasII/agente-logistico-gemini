@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Rate Limiting por IP para prevenir fuerza bruta o abuso de cuota en validación
     const clientIp = getClientIp(req.headers);
-    const rateCheck = verifyKeyRateLimiter.check(clientIp);
+    const rateCheck = await verifyKeyRateLimiter.check(clientIp);
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: 'Demasiadas solicitudes de verificación de API Key. Por favor espera antes de intentar nuevamente.' },

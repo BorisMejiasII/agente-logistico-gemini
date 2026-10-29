@@ -13,6 +13,7 @@
     "test:integration": "vitest run tests/gemini-integration.test.ts",
     "test:openai": "vitest run tests/openai-integration.test.ts",
     "test:web": "vitest run tests/web-multi-provider.test.ts",
+    "test:redis": "vitest run tests/redis-distributed.test.ts",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "web:start": "npm --prefix web run start"

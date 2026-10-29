@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import path from 'path';
 
 // Cargar variables de entorno desde .env si existe
 dotenv.config();
@@ -17,7 +16,6 @@ export interface AppConfig {
   openAiApiKey: string | undefined;
   openAiModel: string;
   inventorySource: InventorySourceMode;
-  unstructuredFilePath: string;
 }
 
 const rawSource = (process.env.INVENTORY_SOURCE ?? 'mock').trim().toLowerCase();
@@ -28,8 +26,7 @@ export const config: AppConfig = {
   geminiModel: (process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite'),
   openAiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
   openAiModel: (process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini'),
-  inventorySource,
-  unstructuredFilePath: path.resolve(process.cwd(), 'data', 'notas_de_inventario_desestructuradas.txt')
+  inventorySource
 };
 
 export function requireApiKey(): string {

@@ -147,3 +147,12 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Vercel
+.vercel
+.vercel/
+
+# Exclusión de archivos de notas no estructuradas de terceros
+data/notas_de_inventario_desestructuradas.txt
+notas_de_inventario_desestructuradas.txt
+
