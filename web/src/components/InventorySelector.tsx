@@ -45,7 +45,7 @@ export const InventorySelector: React.FC<InventorySelectorProps> = ({
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <span>🎲 Mock PDF (1-5 u.)</span>
+            <span> Mock PDF</span>
           </button>
 
           <button
@@ -58,7 +58,7 @@ export const InventorySelector: React.FC<InventorySelectorProps> = ({
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
-            <span>📋 Auditoría Documental</span>
+            <span>Auditoría Documental</span>
           </button>
         </div>
       </div>

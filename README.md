@@ -82,7 +82,7 @@ Las pruebas de integración con Upstash Redis requieren sus credenciales configu
 
 Puedes probar el Agente Logístico directamente desde la aplicación desplegada en Vercel, sin necesidad de instalar el proyecto.
 
-**Enlace:** Pendiente de publicación.
+**Enlace:**: https://agente-logistico-gemini.vercel.app/
 
 Para utilizarla, necesitas proporcionar una API Key válida de Gemini u OpenAI.
 

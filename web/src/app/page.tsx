@@ -23,11 +23,9 @@ interface ConfirmDialogState {
 }
 
 export default function Home() {
-  // Credenciales estrictamente en memoria volátil de React (BYOK)
   const [geminiKey, setGeminiKey] = useState<string>('');
   const [openAIKey, setOpenAIKey] = useState<string>('');
 
-  // Estados de verificación de credenciales
   const [geminiStatus, setGeminiStatus] = useState<KeyVerificationState>('idle');
   const [openAIStatus, setOpenAIStatus] = useState<KeyVerificationState>('idle');
   const [geminiStatusMsg, setGeminiStatusMsg] = useState<string>('');
@@ -37,11 +35,9 @@ export default function Home() {
   const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
   const [inventoryMode, setInventoryMode] = useState<'mock' | 'unstructured'>('mock');
 
-  // Identificadores de sesión serverless
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionSecret, setSessionSecret] = useState<string | null>(null);
 
-  // Historial conversacional y estado logístico
   const [messages, setMessages] = useState<StoredChatMessage[]>([]);
   const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
 
@@ -51,7 +47,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Estado del Modal de Confirmación Accesible (reemplaza window.confirm)
+  // Estado del Modal de Confirmación Accesible 
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
     isOpen: false,
     title: '',
@@ -66,7 +62,6 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Clave activa según el proveedor seleccionado
   const activeKey = provider === 'gemini' ? geminiKey : openAIKey;
   const isKeyConfigured = Boolean(activeKey && activeKey.trim().length > 0);
   const isKeyVerified = provider === 'gemini' ? geminiStatus === 'verified' : openAIStatus === 'verified';
@@ -107,12 +102,10 @@ export default function Home() {
     initSession();
   }, []);
 
-  // Desplazamiento suave al recibir nuevos mensajes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Manejar verificación de API Key
   const handleVerifyKey = async (targetProvider: 'gemini' | 'openai') => {
     const key = targetProvider === 'gemini' ? geminiKey : openAIKey;
     if (!key) return;
@@ -161,7 +154,6 @@ export default function Home() {
     }
   };
 
-  // Ejecución real del cambio de proveedor
   const executeProviderSwitch = async (newProvider: 'gemini' | 'openai') => {
     setProvider(newProvider);
     setErrorMessage(null);
@@ -193,7 +185,6 @@ export default function Home() {
     }
   };
 
-  // Solicitud de cambio de proveedor con advertencia modal
   const handleRequestProviderSwitch = (newProvider: 'gemini' | 'openai') => {
     if (pendingOrder?.state === 'AWAITING_CONFIRMATION') {
       setConfirmDialog({
@@ -216,7 +207,6 @@ export default function Home() {
     executeProviderSwitch(newProvider);
   };
 
-  // Ejecución real del cambio de inventario
   const executeInventorySwitch = async (newMode: 'mock' | 'unstructured') => {
     setInventoryMode(newMode);
     setErrorMessage(null);
@@ -248,7 +238,6 @@ export default function Home() {
     }
   };
 
-  // Solicitud de cambio de inventario con advertencia modal (Requisito clave Don Eduardo)
   const handleRequestInventorySwitch = (newMode: 'mock' | 'unstructured') => {
     if (pendingOrder?.state === 'AWAITING_CONFIRMATION') {
       setConfirmDialog({
@@ -271,7 +260,6 @@ export default function Home() {
     executeInventorySwitch(newMode);
   };
 
-  // Ejecución real del reinicio de sesión
   const executeResetConversation = async () => {
     if (!sessionId || !sessionSecret) return;
     setIsLoading(true);
@@ -298,7 +286,6 @@ export default function Home() {
     }
   };
 
-  // Solicitud de reinicio de sesión con modal si hay operaciones o mensajes
   const handleRequestResetConversation = () => {
     if (pendingOrder?.state === 'AWAITING_CONFIRMATION' || messages.length > 2) {
       setConfirmDialog({
@@ -338,7 +325,6 @@ export default function Home() {
       return;
     }
 
-    // Agregar mensaje de usuario inmediatamente a la interfaz
     const userMsg: StoredChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -372,7 +358,6 @@ export default function Home() {
         throw new Error(data.error || 'Error al comunicarse con el agente.');
       }
 
-      // Mensaje de respuesta del asistente
       const assistantMsg: StoredChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',

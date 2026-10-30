@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Para acciones que requieren sesión existente
+    // Para acciones que requieren que la sesión sea existente
     const sessionId = body.sessionId || req.headers.get('x-session-id');
     const sessionSecret = body.sessionSecret || req.headers.get('x-session-secret');
 

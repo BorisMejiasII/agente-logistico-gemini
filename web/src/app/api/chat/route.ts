@@ -129,7 +129,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_CACHE_HEADERS });
     }
 
-    // Sanitización exhaustiva para garantizar que ninguna API Key ni ruta interna se filtre
     const sanitized = sanitizeErrorMessage(err, userApiKey);
     return NextResponse.json({ error: sanitized }, { status: 500, headers: NO_CACHE_HEADERS });
   }
