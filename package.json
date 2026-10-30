@@ -29,6 +29,9 @@
   ],
   "author": "",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "@google/genai": "^2.31.0",
     "@upstash/redis": "^1.40.0",
